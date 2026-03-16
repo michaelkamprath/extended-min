@@ -1,0 +1,179 @@
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0
+int t7 = 0; int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0
+int t13 = 0; int t14 = 0; int t15 = 0
+
+def show_pass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def show_fail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+int a = 100
+int b = 50
+int c = a + b
+# Test 1: int plus int.
+if c == 150:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 i+i\n")
+  failed += 1; t1 = -1
+
+int d = 100
+int e = 30
+int f = d - e
+# Test 2: int minus int.
+if f == 70:
+  passed += 1; t2 = 1
+else:
+  print("FAIL 2 i-i\n")
+  failed += 1; t2 = -1
+
+int g = 100
+long h = 50000
+long i = g + h
+# Test 3: int plus long promotes to long.
+if i == 50100:
+  passed += 1; t3 = 1
+else:
+  print("FAIL 3 i+l\n")
+  failed += 1; t3 = -1
+
+long j = 40000
+int k = 200
+long m = j + k
+# Test 4: long plus int preserves long result.
+if m == 40200:
+  passed += 1; t4 = 1
+else:
+  print("FAIL 4 l+i\n")
+  failed += 1; t4 = -1
+
+int n = 15000
+long p = 5000
+long q = n - p
+# Test 5: int minus long promotes to long.
+if q == 10000:
+  passed += 1; t5 = 1
+else:
+  print("FAIL 5 i-l\n")
+  failed += 1; t5 = -1
+
+long r = 50000
+int s = 1000
+long t = r - s
+# Test 6: long minus int preserves long result.
+if t == 49000:
+  passed += 1; t6 = 1
+else:
+  print("FAIL 6 l-i\n")
+  failed += 1; t6 = -1
+
+long u = 30000
+long v = 20000
+long w = u + v
+# Test 7: long plus long.
+if w == 50000:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 l+l\n")
+  failed += 1; t7 = -1
+
+long x = 60000
+long y = 10000
+long z = x - y
+# Test 8: long minus long.
+if z == 50000:
+  passed += 1; t8 = 1
+else:
+  print("FAIL 8 l-l\n")
+  failed += 1; t8 = -1
+
+int aa = 10
+int ab = 20
+int ac = 30
+int ad = aa + ab + ac
+# Test 9: chained int addition.
+if ad == 60:
+  passed += 1; t9 = 1
+else:
+  print("FAIL 9 chain add\n")
+  failed += 1; t9 = -1
+
+int ae = 100
+int af = 20
+int ag = 10
+int ah = ae - af - ag
+# Test 10: chained int subtraction.
+if ah == 70:
+  passed += 1; t10 = 1
+else:
+  print("FAIL 10 chain sub\n")
+  failed += 1; t10 = -1
+
+int ai = 50
+int aj = 30
+int ak = 20
+int am = ai + aj - ak
+# Test 11: mixed `+` then `-` in one expression.
+if am == 60:
+  passed += 1; t11 = 1
+else:
+  print("FAIL 11 mix\n")
+  failed += 1; t11 = -1
+
+int an = 50
+int ap = 100
+int aq = an - ap
+# Test 12: negative int result.
+if aq == -50:
+  passed += 1; t12 = 1
+else:
+  print("FAIL 12 neg result\n")
+  failed += 1; t12 = -1
+
+int ar = 100
+int as1 = -ar
+# Test 13: unary minus on int variable.
+if as1 == -100:
+  passed += 1; t13 = 1
+else:
+  print("FAIL 13 unary int\n")
+  failed += 1; t13 = -1
+
+long at = 50000
+long au = -at
+# Test 14: unary minus on long variable.
+if au == -50000:
+  passed += 1; t14 = 1
+else:
+  print("FAIL 14 unary long\n")
+  failed += 1; t14 = -1
+
+int av = 10
+int aw = 5
+int ax = 3
+int ay = av + aw - ax
+# Test 15: expression on rhs of assignment.
+if ay == 12:
+  passed += 1; t15 = 1
+else:
+  print("FAIL 15 expr assign\n")
+  failed += 1; t15 = -1
+
+print("PASS ")
+show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5)
+show_pass(6, t6); show_pass(7, t7); show_pass(8, t8); show_pass(9, t9); show_pass(10, t10)
+show_pass(11, t11); show_pass(12, t12); show_pass(13, t13); show_pass(14, t14); show_pass(15, t15)
+print("\nFAIL ")
+show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5)
+show_fail(6, t6); show_fail(7, t7); show_fail(8, t8); show_fail(9, t9); show_fail(10, t10)
+show_fail(11, t11); show_fail(12, t12); show_fail(13, t13); show_fail(14, t14); show_fail(15, t15)
+print("\nm1arithm PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

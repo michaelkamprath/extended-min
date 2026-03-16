@@ -1,0 +1,183 @@
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0
+int t7 = 0; int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0
+int t13 = 0; int t14 = 0; int t15 = 0
+
+def show_pass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def show_fail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+int a = 10
+a += 1
+# Test 1: `+= 1` on an int.
+if a == 11:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 +=1\n")
+  failed += 1; t1 = -1
+
+int b = 100
+b += 50
+# Test 2: `+=` with a larger positive constant.
+if b == 150:
+  passed += 1; t2 = 1
+else:
+  print("FAIL 2 +=50\n")
+  failed += 1; t2 = -1
+
+int c = 20
+c -= 1
+# Test 3: `-= 1` on an int.
+if c == 19:
+  passed += 1; t3 = 1
+else:
+  print("FAIL 3 -=1\n")
+  failed += 1; t3 = -1
+
+int d = 100
+d -= 30
+# Test 4: `-=` with a larger positive constant.
+if d == 70:
+  passed += 1; t4 = 1
+else:
+  print("FAIL 4 -=30\n")
+  failed += 1; t4 = -1
+
+int e = 0
+int count1 = 0
+while count1 < 100:
+  count1 += 1
+  e += 1
+# Test 5: `+=` in a loop hot path.
+if e == 100:
+  passed += 1; t5 = 1
+else:
+  print("FAIL 5 loop +=\n")
+  failed += 1; t5 = -1
+
+int f = 10
+f += 0x0a
+# Test 6: `+=` with a hex literal.
+if f == 20:
+  passed += 1; t6 = 1
+else:
+  print("FAIL 6 +=hex\n")
+  failed += 1; t6 = -1
+
+int outer = 0
+int total = 0
+while outer < 10:
+  outer += 1
+  int inner = 0
+  while inner < 10:
+    inner += 1
+    total += 1
+# Test 7: nested loops using `+=`.
+if total == 100:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 nested +=\n")
+  failed += 1; t7 = -1
+
+int g = 100
+int count2 = 0
+while g > 0:
+  g -= 1
+  count2 += 1
+  if count2 == 50:
+    break
+# Test 8: `-=` countdown loop with a break.
+if g == 50:
+  passed += 1; t8 = 1
+else:
+  print("FAIL 8 loop -=\n")
+  failed += 1; t8 = -1
+
+int h = 0
+while h < 1000:
+  h += 1
+  if h == 25:
+    break
+# Test 9: `+=` loop with early break.
+if h == 25:
+  passed += 1; t9 = 1
+else:
+  print("FAIL 9 += break\n")
+  failed += 1; t9 = -1
+
+int i = 1000
+i += 1000
+# Test 10: `+=` with a large constant.
+if i == 2000:
+  passed += 1; t10 = 1
+else:
+  print("FAIL 10 += large\n")
+  failed += 1; t10 = -1
+
+int j = 10
+j += 5
+j += 3
+j += 2
+# Test 11: repeated `+=` on one variable.
+if j == 20:
+  passed += 1; t11 = 1
+else:
+  print("FAIL 11 multi +=\n")
+  failed += 1; t11 = -1
+
+int k = 50
+k += 30
+k -= 20
+k += 10
+# Test 12: mixed `+=` and `-=`.
+if k == 70:
+  passed += 1; t12 = 1
+else:
+  print("FAIL 12 mix +=-=\n")
+  failed += 1; t12 = -1
+
+int m = 100
+m += -10
+# Test 13: `+=` with a negative immediate.
+if m == 90:
+  passed += 1; t13 = 1
+else:
+  print("FAIL 13 += neg\n")
+  failed += 1; t13 = -1
+
+int n = 100
+n -= -10
+# Test 14: `-=` with a negative immediate.
+if n == 110:
+  passed += 1; t14 = 1
+else:
+  print("FAIL 14 -= neg\n")
+  failed += 1; t14 = -1
+
+char p = 65
+p += 1
+# Test 15: `+=` on char storage.
+if p == 66:
+  passed += 1; t15 = 1
+else:
+  print("FAIL 15 char +=\n")
+  failed += 1; t15 = -1
+
+print("PASS ")
+show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5)
+show_pass(6, t6); show_pass(7, t7); show_pass(8, t8); show_pass(9, t9); show_pass(10, t10)
+show_pass(11, t11); show_pass(12, t12); show_pass(13, t13); show_pass(14, t14); show_pass(15, t15)
+print("\nFAIL ")
+show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5)
+show_fail(6, t6); show_fail(7, t7); show_fail(8, t8); show_fail(9, t9); show_fail(10, t10)
+show_fail(11, t11); show_fail(12, t12); show_fail(13, t13); show_fail(14, t14); show_fail(15, t15)
+print("\nm2augasg PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

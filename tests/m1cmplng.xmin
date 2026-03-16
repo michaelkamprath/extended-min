@@ -1,0 +1,268 @@
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0; int t7 = 0
+int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0; int t13 = 0; int t14 = 0
+int t15 = 0; int t16 = 0; int t17 = 0; int t18 = 0; int t19 = 0; int t20 = 0; int t21 = 0
+int t22 = 0; int t23 = 0; int t24 = 0; int t25 = 0; int t26 = 0; int t27 = 0; int t28 = 0
+
+def show_pass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def show_fail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+int a = 100
+long b = 100
+# Test 1: int lhs `==` long rhs true case.
+if a == b:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 i==l\n")
+  failed += 1; t1 = -1
+
+long c = 200
+# Test 2: int lhs `==` long rhs false case.
+if a == c:
+  print("FAIL 2 i==l false\n")
+  failed += 1; t2 = -1
+else:
+  passed += 1; t2 = 1
+
+long d = 100
+int e = 100
+# Test 3: long lhs `==` int rhs true case.
+if d == e:
+  passed += 1; t3 = 1
+else:
+  print("FAIL 3 l==i\n")
+  failed += 1; t3 = -1
+
+int f = 50
+# Test 4: long lhs `==` int rhs false case.
+if d == f:
+  print("FAIL 4 l==i false\n")
+  failed += 1; t4 = -1
+else:
+  passed += 1; t4 = 1
+
+int g = 50
+long h = 100
+# Test 5: int lhs `!=` long rhs true case.
+if g != h:
+  passed += 1; t5 = 1
+else:
+  print("FAIL 5 i!=l\n")
+  failed += 1; t5 = -1
+
+long i = 50
+# Test 6: int lhs `!=` long rhs false case.
+if g != i:
+  print("FAIL 6 i!=l false\n")
+  failed += 1; t6 = -1
+else:
+  passed += 1; t6 = 1
+
+long j = 200
+int k = 100
+# Test 7: long lhs `!=` int rhs true case.
+if j != k:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 l!=i\n")
+  failed += 1; t7 = -1
+
+int m = 200
+# Test 8: long lhs `!=` int rhs false case.
+if j != m:
+  print("FAIL 8 l!=i false\n")
+  failed += 1; t8 = -1
+else:
+  passed += 1; t8 = 1
+
+int n = 50
+long p = 100
+# Test 9: int lhs `<` long rhs true case.
+if n < p:
+  passed += 1; t9 = 1
+else:
+  print("FAIL 9 i<l\n")
+  failed += 1; t9 = -1
+
+long q = 25
+# Test 10: int lhs `<` long rhs false case.
+if n < q:
+  print("FAIL 10 i<l false\n")
+  failed += 1; t10 = -1
+else:
+  passed += 1; t10 = 1
+
+long r = 25
+int s = 100
+# Test 11: long lhs `<` int rhs true case.
+if r < s:
+  passed += 1; t11 = 1
+else:
+  print("FAIL 11 l<i\n")
+  failed += 1; t11 = -1
+
+int t = 10
+# Test 12: long lhs `<` int rhs false case.
+if r < t:
+  print("FAIL 12 l<i false\n")
+  failed += 1; t12 = -1
+else:
+  passed += 1; t12 = 1
+
+int u = 100
+long v = 100
+# Test 13: int lhs `<=` long rhs equality case.
+if u <= v:
+  passed += 1; t13 = 1
+else:
+  print("FAIL 13 i<=l eq\n")
+  failed += 1; t13 = -1
+
+long w = 200
+# Test 14: int lhs `<=` long rhs less-than case.
+if u <= w:
+  passed += 1; t14 = 1
+else:
+  print("FAIL 14 i<=l lt\n")
+  failed += 1; t14 = -1
+
+long x = 100
+int y = 100
+# Test 15: long lhs `<=` int rhs equality case.
+if x <= y:
+  passed += 1; t15 = 1
+else:
+  print("FAIL 15 l<=i eq\n")
+  failed += 1; t15 = -1
+
+int z = 150
+# Test 16: long lhs `<=` int rhs less-than case.
+if x <= z:
+  passed += 1; t16 = 1
+else:
+  print("FAIL 16 l<=i lt\n")
+  failed += 1; t16 = -1
+
+int aa = 200
+long ab = 100
+# Test 17: int lhs `>` long rhs true case.
+if aa > ab:
+  passed += 1; t17 = 1
+else:
+  print("FAIL 17 i>l\n")
+  failed += 1; t17 = -1
+
+long ac = 300
+# Test 18: int lhs `>` long rhs false case.
+if aa > ac:
+  print("FAIL 18 i>l false\n")
+  failed += 1; t18 = -1
+else:
+  passed += 1; t18 = 1
+
+long ad = 150
+int ae = 100
+# Test 19: long lhs `>` int rhs true case.
+if ad > ae:
+  passed += 1; t19 = 1
+else:
+  print("FAIL 19 l>i\n")
+  failed += 1; t19 = -1
+
+int af = 200
+# Test 20: long lhs `>` int rhs false case.
+if ad > af:
+  print("FAIL 20 l>i false\n")
+  failed += 1; t20 = -1
+else:
+  passed += 1; t20 = 1
+
+int ag = 100
+long ah = 100
+# Test 21: int lhs `>=` long rhs equality case.
+if ag >= ah:
+  passed += 1; t21 = 1
+else:
+  print("FAIL 21 i>=l eq\n")
+  failed += 1; t21 = -1
+
+long ai = 50
+# Test 22: int lhs `>=` long rhs greater-than case.
+if ag >= ai:
+  passed += 1; t22 = 1
+else:
+  print("FAIL 22 i>=l gt\n")
+  failed += 1; t22 = -1
+
+long aj = 100
+int ak = 100
+# Test 23: long lhs `>=` int rhs equality case.
+if aj >= ak:
+  passed += 1; t23 = 1
+else:
+  print("FAIL 23 l>=i eq\n")
+  failed += 1; t23 = -1
+
+int am = 50
+# Test 24: long lhs `>=` int rhs greater-than case.
+if aj >= am:
+  passed += 1; t24 = 1
+else:
+  print("FAIL 24 l>=i gt\n")
+  failed += 1; t24 = -1
+
+int an = 1000
+long ap = 50000
+# Test 25: small int compared with large long.
+if an < ap:
+  passed += 1; t25 = 1
+else:
+  print("FAIL 25 small<big\n")
+  failed += 1; t25 = -1
+
+# Test 26: large long compared with small int.
+if ap > an:
+  passed += 1; t26 = 1
+else:
+  print("FAIL 26 big>small\n")
+  failed += 1; t26 = -1
+
+int INTVAL100 := 100
+int INTVAL50 := 50
+long LONGVAL100 := 100
+long LONGVAL200 := 200
+# Test 27: mixed-type constant equality.
+if INTVAL100 == LONGVAL100:
+  passed += 1; t27 = 1
+else:
+  print("FAIL 27 const eq\n")
+  failed += 1; t27 = -1
+
+# Test 28: mixed-type constant ordering.
+if INTVAL50 < LONGVAL200:
+  passed += 1; t28 = 1
+else:
+  print("FAIL 28 const lt\n")
+  failed += 1; t28 = -1
+
+print("PASS ")
+show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5); show_pass(6, t6); show_pass(7, t7)
+show_pass(8, t8); show_pass(9, t9); show_pass(10, t10); show_pass(11, t11); show_pass(12, t12); show_pass(13, t13); show_pass(14, t14)
+show_pass(15, t15); show_pass(16, t16); show_pass(17, t17); show_pass(18, t18); show_pass(19, t19); show_pass(20, t20); show_pass(21, t21)
+show_pass(22, t22); show_pass(23, t23); show_pass(24, t24); show_pass(25, t25); show_pass(26, t26); show_pass(27, t27); show_pass(28, t28)
+print("\nFAIL ")
+show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5); show_fail(6, t6); show_fail(7, t7)
+show_fail(8, t8); show_fail(9, t9); show_fail(10, t10); show_fail(11, t11); show_fail(12, t12); show_fail(13, t13); show_fail(14, t14)
+show_fail(15, t15); show_fail(16, t16); show_fail(17, t17); show_fail(18, t18); show_fail(19, t19); show_fail(20, t20); show_fail(21, t21)
+show_fail(22, t22); show_fail(23, t23); show_fail(24, t24); show_fail(25, t25); show_fail(26, t26); show_fail(27, t27); show_fail(28, t28)
+print("\nm1cmplng PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

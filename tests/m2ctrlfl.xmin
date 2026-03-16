@@ -1,0 +1,249 @@
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0
+int t7 = 0; int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0
+int t13 = 0; int t14 = 0; int t15 = 0; int t16 = 0; int t17 = 0; int t18 = 0
+int t19 = 0; int t20 = 0; int t21 = 0; int t22 = 0; int t23 = 0; int t24 = 0
+
+def show_pass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def show_fail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+int a = 100
+int b = 100
+# Test 1: simple `if` true branch.
+if a == b:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 if\n")
+  failed += 1; t1 = -1
+
+int c = 50
+int d = 100
+# Test 2: `else` path after failed equality.
+if c == d:
+  print("FAIL 2 else wrong side\n")
+  failed += 1; t2 = -1
+else:
+  passed += 1; t2 = 1
+
+int e = 10
+int f = 20
+# Test 3: nested `if` inner branch.
+if e < f:
+  if e == 10:
+    passed += 1; t3 = 1
+  else:
+    print("FAIL 3 nested inner\n")
+    failed += 1; t3 = -1
+else:
+  print("FAIL 4 nested outer\n")
+  failed += 1; t4 = -1
+# Test 4: nested `if` outer guard remained true.
+if t4 == 0:
+  t4 = 1
+
+int g = 0
+int count1 = 0
+while g < 10:
+  g += 1
+  count1 += 1
+# Test 5: simple `while` loop count.
+if count1 == 10:
+  passed += 1; t5 = 1
+else:
+  print("FAIL 5 while count\n")
+  failed += 1; t5 = -1
+
+int h = 0
+int target = 5
+int count2 = 0
+while h < target:
+  h += 1
+  count2 += 1
+# Test 6: variable-bounded `while` loop.
+if count2 == 5:
+  passed += 1; t6 = 1
+else:
+  print("FAIL 6 while var\n")
+  failed += 1; t6 = -1
+
+int i = 0
+int j = 10
+int count3 = 0
+while i < j:
+  i += 1
+  count3 += 1
+  if i == 5:
+    j = 7
+# Test 7: loop mutates its own stop value.
+if count3 == 7:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 loop shrink\n")
+  failed += 1; t7 = -1
+
+int k = 50
+# Test 8: deepest nested comparison branch.
+if k > 25:
+  if k < 75:
+    if k == 50:
+      passed += 1; t8 = 1
+    else:
+      print("FAIL 8 multi cmp inner\n")
+      failed += 1; t8 = -1
+  else:
+    print("FAIL 9 multi cmp mid\n")
+    failed += 1; t9 = -1
+else:
+  print("FAIL 10 multi cmp outer\n")
+  failed += 1; t10 = -1
+# Test 9: middle nested comparison guard.
+if t9 == 0:
+  t9 = 1
+# Test 10: outer nested comparison guard.
+if t10 == 0:
+  t10 = 1
+
+int m = 0
+int count4 = 0
+while m < 100:
+  m += 1
+  count4 += 1
+  if m == 10:
+    break
+# Test 11: `break` exits loop cleanly.
+if count4 == 10:
+  passed += 1; t11 = 1
+else:
+  print("FAIL 11 break count\n")
+  failed += 1; t11 = -1
+
+int n = 10
+int p = 20
+int q = 0
+if n < p:
+  q = 1
+# Test 12: comparison used in control flow can still feed later assignment checks.
+if q == 1:
+  passed += 1; t12 = 1
+else:
+  print("FAIL 12 cmp result use\n")
+  failed += 1; t12 = -1
+
+int outer = 0
+int total = 0
+while outer < 5:
+  outer += 1
+  int inner = 0
+  while inner < 5:
+    inner += 1
+    total += 1
+# Test 13: nested `while` loops preserve counts.
+if total == 25:
+  passed += 1; t13 = 1
+else:
+  print("FAIL 13 nested while\n")
+  failed += 1; t13 = -1
+
+int val = 2
+# Test 14: chain miss on first option.
+if val == 1:
+  print("FAIL 14 chain 1\n")
+  failed += 1; t14 = -1
+else:
+  passed += 1; t14 = 1
+
+# Test 15: chain hit on second option.
+if val == 2:
+  passed += 1; t15 = 1
+else:
+  print("FAIL 15 chain 2\n")
+  failed += 1; t15 = -1
+
+# Test 16: chain miss on third option.
+if val == 3:
+  print("FAIL 16 chain 3\n")
+  failed += 1; t16 = -1
+else:
+  passed += 1; t16 = 1
+
+int r = 100
+int s = 50
+# Test 17: `>` in control flow.
+if r > s:
+  passed += 1; t17 = 1
+else:
+  print("FAIL 17 gt\n")
+  failed += 1; t17 = -1
+
+# Test 18: `<` in control flow.
+if s < r:
+  passed += 1; t18 = 1
+else:
+  print("FAIL 18 lt\n")
+  failed += 1; t18 = -1
+
+# Test 19: `>=` in control flow.
+if r >= 100:
+  passed += 1; t19 = 1
+else:
+  print("FAIL 19 ge\n")
+  failed += 1; t19 = -1
+
+# Test 20: `<=` in control flow.
+if s <= 100:
+  passed += 1; t20 = 1
+else:
+  print("FAIL 20 le\n")
+  failed += 1; t20 = -1
+
+# Test 21: `!=` in control flow.
+if r != s:
+  passed += 1; t21 = 1
+else:
+  print("FAIL 21 ne\n")
+  failed += 1; t21 = -1
+
+# Test 22: `==` in control flow.
+if r == 100:
+  passed += 1; t22 = 1
+else:
+  print("FAIL 22 eq\n")
+  failed += 1; t22 = -1
+
+int x0 = 10
+# Test 23: minimal `else` true side.
+if x0 == 10:
+  passed += 1; t23 = 1
+else:
+  print("FAIL 23 else minimal yes\n")
+  failed += 1; t23 = -1
+
+int x1 = 9
+# Test 24: minimal `else` false side.
+if x1 == 10:
+  print("FAIL 24 else minimal no\n")
+  failed += 1; t24 = -1
+else:
+  passed += 1; t24 = 1
+
+print("PASS ")
+show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5); show_pass(6, t6)
+show_pass(7, t7); show_pass(8, t8); show_pass(9, t9); show_pass(10, t10); show_pass(11, t11); show_pass(12, t12)
+show_pass(13, t13); show_pass(14, t14); show_pass(15, t15); show_pass(16, t16); show_pass(17, t17); show_pass(18, t18)
+show_pass(19, t19); show_pass(20, t20); show_pass(21, t21); show_pass(22, t22); show_pass(23, t23); show_pass(24, t24)
+print("\nFAIL ")
+show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5); show_fail(6, t6)
+show_fail(7, t7); show_fail(8, t8); show_fail(9, t9); show_fail(10, t10); show_fail(11, t11); show_fail(12, t12)
+show_fail(13, t13); show_fail(14, t14); show_fail(15, t15); show_fail(16, t16); show_fail(17, t17); show_fail(18, t18)
+show_fail(19, t19); show_fail(20, t20); show_fail(21, t21); show_fail(22, t22); show_fail(23, t23); show_fail(24, t24)
+print("\nm2ctrlfl PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

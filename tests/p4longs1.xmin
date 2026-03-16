@@ -1,0 +1,200 @@
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0; int t7 = 0
+int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0; int t13 = 0; int t14 = 0
+int t15 = 0; int t16 = 0; int t17 = 0; int t18 = 0; int t19 = 0; int t20 = 0
+
+def show_pass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def show_fail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+char c = char(0x41)
+int i = int(0x1234)
+long lfromchar = long(c)
+long lfromint = long(i)
+int ifromlong = int(lfromint)
+char cfromlong = char(lfromchar)
+
+# Test 1: explicit `char(...)` cast.
+if c == 65:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 char cast\n")
+  failed += 1; t1 = -1
+
+# Test 2: explicit `int(...)` cast.
+if i == 0x1234:
+  passed += 1; t2 = 1
+else:
+  print("FAIL 2 int cast\n")
+  failed += 1; t2 = -1
+
+# Test 3: widening cast from char to long.
+if lfromchar == 65:
+  passed += 1; t3 = 1
+else:
+  print("FAIL 3 long from char\n")
+  failed += 1; t3 = -1
+
+# Test 4: widening cast from int to long.
+if lfromint == 0x1234:
+  passed += 1; t4 = 1
+else:
+  print("FAIL 4 long from int\n")
+  failed += 1; t4 = -1
+
+# Test 5: narrowing cast from long back to int.
+if ifromlong == 0x1234:
+  passed += 1; t5 = 1
+else:
+  print("FAIL 5 int from long\n")
+  failed += 1; t5 = -1
+
+# Test 6: narrowing cast from long back to char.
+if cfromlong == 65:
+  passed += 1; t6 = 1
+else:
+  print("FAIL 6 char from long\n")
+  failed += 1; t6 = -1
+
+long BigHex := 0x12345678
+long NegOne := 0xffffffff
+long a = BigHex
+long b = 70000
+long d = long(30000)
+int e = int(a)
+
+# Test 7: long constant literal survives assignment.
+if a == 0x12345678:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 long const\n")
+  failed += 1; t7 = -1
+
+# Test 8: direct long literal assignment.
+if b == 70000:
+  passed += 1; t8 = 1
+else:
+  print("FAIL 8 long lit\n")
+  failed += 1; t8 = -1
+
+# Test 9: explicit long cast from int-sized literal.
+if d == 30000:
+  passed += 1; t9 = 1
+else:
+  print("FAIL 9 long cast lit\n")
+  failed += 1; t9 = -1
+
+# Test 10: narrowing cast from long preserves low 16 bits.
+if e == 0x5678:
+  passed += 1; t10 = 1
+else:
+  print("FAIL 10 int trunc\n")
+  failed += 1; t10 = -1
+
+# Test 11: all-ones long constant is interpreted as `-1`.
+if NegOne == -1:
+  passed += 1; t11 = 1
+else:
+  print("FAIL 11 neg one\n")
+  failed += 1; t11 = -1
+
+def echo(long v):
+  long tmp = v
+  return tmp
+
+long VALUE := 0x00112233
+long x = echo(VALUE)
+# Test 12: long parameter and long return path.
+if x == VALUE:
+  passed += 1; t12 = 1
+else:
+  print("FAIL 12 long return\n")
+  failed += 1; t12 = -1
+
+def pair(int x1, int y1):
+  int z = x1 + y1; return z
+
+int s = pair(50, 100)
+# Test 13: multi-parameter function call.
+if s == 150:
+  passed += 1; t13 = 1
+else:
+  print("FAIL 13 multi param\n")
+  failed += 1; t13 = -1
+
+int m = 7
+int n = 3
+int p = m + n
+int q = m - n
+int r = m * n
+int t = m / n
+int u = m << 2
+int v = u >> 1
+
+# Test 14: existing int addition behavior remains intact.
+if p == 10:
+  passed += 1; t14 = 1
+else:
+  print("FAIL 14 int add keep\n")
+  failed += 1; t14 = -1
+
+# Test 15: existing int subtraction behavior remains intact.
+if q == 4:
+  passed += 1; t15 = 1
+else:
+  print("FAIL 15 int sub keep\n")
+  failed += 1; t15 = -1
+
+# Test 16: existing int multiplication behavior remains intact.
+if r == 21:
+  passed += 1; t16 = 1
+else:
+  print("FAIL 16 int mul keep\n")
+  failed += 1; t16 = -1
+
+# Test 17: existing int division behavior remains intact.
+if t == 2:
+  passed += 1; t17 = 1
+else:
+  print("FAIL 17 int div keep\n")
+  failed += 1; t17 = -1
+
+# Test 18: existing left shift behavior remains intact.
+if u == 28:
+  passed += 1; t18 = 1
+else:
+  print("FAIL 18 shl keep\n")
+  failed += 1; t18 = -1
+
+# Test 19: existing right shift behavior remains intact.
+if v == 14:
+  passed += 1; t19 = 1
+else:
+  print("FAIL 19 shr keep\n")
+  failed += 1; t19 = -1
+
+# Test 20: existing int comparison behavior remains intact.
+if m > n:
+  passed += 1; t20 = 1
+else:
+  print("FAIL 20 cmp keep\n")
+  failed += 1; t20 = -1
+
+print("PASS ")
+show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5); show_pass(6, t6); show_pass(7, t7)
+show_pass(8, t8); show_pass(9, t9); show_pass(10, t10); show_pass(11, t11); show_pass(12, t12); show_pass(13, t13); show_pass(14, t14)
+show_pass(15, t15); show_pass(16, t16); show_pass(17, t17); show_pass(18, t18); show_pass(19, t19); show_pass(20, t20)
+print("\nFAIL ")
+show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5); show_fail(6, t6); show_fail(7, t7)
+show_fail(8, t8); show_fail(9, t9); show_fail(10, t10); show_fail(11, t11); show_fail(12, t12); show_fail(13, t13); show_fail(14, t14)
+show_fail(15, t15); show_fail(16, t16); show_fail(17, t17); show_fail(18, t18); show_fail(19, t19); show_fail(20, t20)
+print("\np4longs1 PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

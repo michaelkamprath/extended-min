@@ -1,0 +1,3512 @@
+; -----------------------------------------------------------
+; MIN Programming Language for the 'MINIMAL 64' Home Computer
+; original version for the 'Minimal UART CPU'
+; written by Carsten Herting (slu4)       10.02.22-31.05.2022
+; optimized and ported to the MINIMAL 64  15.09.22-15.11.2022
+; tokenized and highly optimized version  21.01.23-11.02.2023
+; last functional update                           16.03.2023
+; ported to Minimal 64x4                           30.10.2023
+; optimized for zero page                          31.01.2024
+; ------------------------------------------------------------------------
+; Extended Min
+; An enhanced version of Min language with added functionality.
+; written by Michael Kamprath based on Carsten Herting's orignal version.
+;
+; Updates
+; -------
+; Compilable by Bespoke ASM + hardware multiplier              03.07.2026
+; Added additional features, notably the long type             03.15.2026
+; ------------------------------------------------------------------------
+
+; LICENSING INFORMATION
+; This file is free software: you can redistribute it and/or modify it under the terms of the
+; GNU General Public License as published by the Free Software Foundation, either
+; version 3 of the License, or (at your option) any later version.
+; This file is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+; implied warranty of MERCHANMBBILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+; License for more details. You should have received a copy of the GNU General Public License along
+; with this program. If not, see https://www.gnu.org/licenses/.
+
+; MIN's MEMORY LAYOUT:
+; 0x0100 - 0x0fff   4KB text editor
+; ---------------
+; 0x1000 - 0x3f7f   MIN interpreter incl. MIN global state
+; 0x3f80 - 0x3fff   long-lhs spill stack (128 bytes)
+; ---------------
+; 0x8000 - 0xd9ff   MIN source + tokenized stream
+; 0xda00 - 0xdfff   local variables and expressions (1536 bytes)
+; 0xe000 - 0xe2ff   call dict (255 x 3 bytes)
+; 0xe300 - 0xebff   var dict (255 x 9 bytes)
+; 0xec00 - 0xec6f   use dict (5 x 22 bytes)
+; ---------------
+; 0xf000 - 0xfdff   4KB OS kernel
+; 0xfe00 - 0xfe7f   OS save space
+; 0xfe80 - 0xfeff   expansion card memory map
+; 0xff00 - 0xffff   fast page and stack
+
+; --------------------------------------------------------------------------------------
+; MAIN PROCEDURE (FILE LOADER, TOKENIZER, INTERPRETER)
+; --------------------------------------------------------------------------------------
+#require __LANGUAGE_NAME__ == slu4-min64x4-asm
+#require __LANGUAGE_VERSION__ >= 1.1.0
+#require __BESPOKEASM_VERSION__ >= 0.7.2
+
+#create_memzone MIN_INTERPRETER  0x1000 0x3F7F
+#create_memzone MIN_LHS_SPILL    0x3F80 0x3FFF
+
+.memzone MIN_INTERPRETER
+.org 0 "MIN_INTERPRETER"
+extended_min_start:
+    MIB 0xfe,0xffff                         ; init stack
+    JPS _SkipSpace                          ; command line: skip spaces after 'min <filename>'
+    JPS Loader                              ; _ReadPtr potentially points to <filename>
+
+    MIW 0xffff,g_stop                       ; set no stop for tokenizer
+    JPS Tokenizer                           ; build tokenized code beyond source code
+
+    MIV firstcall,z_nextcall                ; init MIN interpreter global state
+    MIV firstvar,z_nextvar
+    MIV firstsp,z_sp
+    MIV firstsp,z_spi INV z_spi
+    CLZ z_sub CLZ z_halt CLV z_cnt
+    CLZ call_depth
+    MIZ 0xff,z_tind                         ; tind will be 0 upon entering the program block
+    MIZ 0xff,z_vcache_id MIZ 0xff,z_vcache_sub  ; invalidate getVar() hot cache
+    MIW 0xffff,z_vcache_top MIW 0xffff,z_vcache_ptr
+    MIW 0xffff,z_fun_argpc MIW 0xffff,z_fun_parpc
+    MIV lhs_spill_base,lhs_spill_ptr
+    MVV z_PtrD,z_pc                         ; point program counter to tokenized prg
+    JPS Block                               ; run program as a Block()
+
+    JPA _Prompt                             ; return to OS prompt
+
+; ------------------------------------------------------------------------------------------
+; Loads <filename> pointed to by _ReadPtr from SSD into address given in PtrD
+; <filename> must be terminated by <= 32
+; success: returns A=1, _ReadPtr points beyond <filename>, PtrD points beyond loaded data
+; failure: returns A=0, _ReadPtr points to <filename>
+; modifies: _ReadPtr, PtrA, PtrB, PtrC (by _FindFile), PtrD (D is not modified by _FindFile)
+; ------------------------------------------------------------------------------------------
+LoadFileTo:
+    JPS _FindFile CPI 1 FEQ lf_found        ; PtrA0..2 now points to file in active FLASH
+    LDI 0 RTS                               ; return a failure (file not found)
+lf_found:
+    AIV 22,z_PtrA JPS OS_FlashA             ; search for bytesize of file
+    RDR z_PtrA STZ z_PtrB+0 INV z_PtrA JPS OS_FlashA  ; bytesize -> PtrB (PtrA now points to data)
+    RDR z_PtrA STZ z_PtrB+1 INV z_PtrA JPS OS_FlashA
+    MVV z_PtrD,z_A
+    AVV z_PtrB,z_A                          ; z_A = trailing '\0' address after copied file
+    CIZ BYTE1(source_top),z_A+1 FCC lf_loadloop
+    FNE lf_ramfull
+    CIZ BYTE0(source_top),z_A+0 FCC lf_loadloop
+lf_ramfull:
+    LDI BYTE0(error08) PHS LDI BYTE1(error08) PHS
+    JPS _PrintPtr PLS PLS
+    JPS PrintEnter
+    JPA _Prompt
+lf_loadloop:
+    DEV z_PtrB FCC lf_success               ; done with copying?
+    RDR z_PtrA STT z_PtrD                   ; load byte from FLASH, switch FLASH off
+    INV z_PtrD INV z_PtrA JPS OS_FlashA
+    FPA lf_loadloop
+lf_success:
+    LDI 0 STT z_PtrD INV z_PtrD             ; enforce C-string termination in RAM
+    LDI 1 RTS                               ; switch off FLASH
+
+; Produces a FLASH/BANK address in the correct form: PtrA+2=bank, PtrA0..1=12bit section address
+; Adds the value of bits 12-15 of PtrA to PtrA+2, updates bank register and clears upper nibble of PtrA
+; Call this routine everytime the FLASH pointer PtrA is modified!
+; modifies: PtrA+0..2, bank register
+OS_FlashA:
+    LDZ z_PtrA+1 RL5 ANI 0x0f               ; is something in the upper nibble?
+    CPI 0 FEQ fa_rts
+    AD.Z z_PtrA+2                           ; there was something -> update bank register PtrA+2
+    LDI 0x0f AN.Z z_PtrA+1                  ; clear upper nibble of PtrA+1
+fa_rts:
+    RTS
+
+; --------------------------------------------------------------------------------------
+; ERROR HANDLING (ERROR NUMBER, LINE NUMBER)
+; --------------------------------------------------------------------------------------
+
+; Frontend for run-time error handling within the *tokenized* code (finds pos in source)
+; Intended to be called via 'FPA Error' and *not* via 'JPS Error'.
+; push: errortext_lsb, errortext_msb
+; pull: not necessary, exits to _Prompt
+Error:
+    LDZ z_pc+0 STB g_stop+0 LDZ z_pc+1 STB g_stop+1  ; run tokenizer until stop position
+    JPS Tokenizer                           ; now z_pc points at error in source code
+    FPA SourceError                         ; pull A back into A
+
+; Outputs an error text and the current line number corresponding to z_pc within the *source* code
+; Intended to be called via 'FPA' and *not* via 'JPS'. Exits to _Prompt with CPU stack reset.
+; push: errortext_lsb, errortext_msb
+; pull: not necessary, exits to _Prompt
+SourceError:
+    JPS PrintEnter
+    LDB srcptr+0 PHS LDB srcptr+1 PHS JPS _PrintPtr PLS PLS  ; print filename
+    JPS PrintEnter
+    JPS _PrintPtr PLS PLS                   ; print specific error text
+    JPS _Print " in line "
+    LDB g_line+0 STZ z_A+0 LDB g_line+1 STZ z_A+1  ; move line number into z_A
+    JPS int_tostr                           ; convert line number in z_A to string
+    LDB strptr+0 PHS LDB strptr+1 PHS JPS _PrintPtr PLS PLS  ; print line number
+    JPS PrintEnter
+; find and print out erroneous row
+    MZZ z_pc+0,z_A+0 MZZ z_pc+1,z_A+1      ; use z_A as pointer
+se_loop:
+    DEV z_A CPI BYTE1(file) FNE se_infile   ; one step back
+    CIZ BYTE0(file),z_A+0 FEQ se_start      ; reached start of file area?
+se_infile:
+    LDT z_A CPI 10 FNE se_loop
+    INV z_A                                 ; do not show leading RETURN
+se_start:
+    LDT z_A JAS _PrintChar
+    INV z_A CPZ z_pc+1 FCC se_start
+    LDZ z_A+0 CPZ z_pc+0 FCC se_start
+    JPS _Print "??\x0a"
+    JPA _Prompt                             ; exit to OS prompt (does stack reset)
+
+PrintEnter:
+    LDI 10 JAS _PrintChar RTS
+
+; --------------------------------------------------------------------------------------
+; LOADER AND TOKENIZER
+; --------------------------------------------------------------------------------------
+
+; -----------------------------------------------------------
+; loads filename at _ReadPtr into z_PtrD
+; advances z_PtrD and generates an entry to the sources vector
+; -----------------------------------------------------------
+LoadFile:
+    LDZ z_PtrD+0 STT z_nextsrc INV z_nextsrc  ; emplace first source addr into sources vector
+    LDZ z_PtrD+1 STT z_nextsrc INV z_nextsrc
+    LDZ z_nextsrc+0 STB snameptr+0          ; filename pointer in sources
+    LDZ z_nextsrc+1 STB snameptr+1
+    LDB _ReadPtr+0 STZ z_A+0                ; remember filename start
+    LDB _ReadPtr+1 STZ z_A+1
+    JPS LoadFileTo                          ; load filename in _ReadPtr into z_PtrD location
+    CPI 1 FEQ foundfile                     ; file found? -> run now with file loaded
+    JPS _Print "Not found: "
+nameerrloop:
+    LDR _ReadPtr CPI 33 FCC returnchar
+    CPI '"'
+    FEQ returnchar
+    JAS _PrintChar
+    INW _ReadPtr FPA nameerrloop
+returnchar:
+    LDI 10 JAS _PrintChar
+    JPA _Prompt
+foundfile:
+    LDB _ReadPtr+0 SUZ z_A+0 STZ z_B+0      ; calc filename byte count -> z_B+0
+snameloop:
+    DEZ z_B+0 FCC finalizesrc               ; some filename chars to write?
+    LDT z_A
+    STB @snameptr: 0xffff                   ; copy filename into sources vector
+    INV z_A INW snameptr FPA snameloop
+finalizesrc:
+    LDI 0 STR snameptr                      ; finalize the name in sources
+    AIV 20,z_nextsrc                        ; finalize sources entry
+    RTS
+
+Loader:
+    LDI BYTE0(firstsrc) STZ z_nextsrc+0     ; init sources vector
+    LDI BYTE1(firstsrc) STZ z_nextsrc+1
+    LDI BYTE0(file) STZ z_PtrD+0 STZ z_pc+0 ; init z_PtrD (points beyond last source file)
+    LDI BYTE1(file) STZ z_PtrD+1 STZ z_pc+1 ; init z_pc (used by Loader to parse for use ...)
+    LDR _ReadPtr CPI 33 BCS appendfile      ; load first source from commandline or use text?
+    LDI BYTE0(file) STT z_nextsrc INV z_nextsrc  ; emplace first source addr into sources vector
+    LDI BYTE1(file) STT z_nextsrc INV z_nextsrc
+    LDI 0 STT z_nextsrc                     ; null name in sources
+    AIV 20,z_nextsrc                        ; finalize sources entry
+dst_loop:
+    LDT z_PtrD CPI 0 FEQ found_zero         ; look for 0 in source file
+    INV z_PtrD FPA dst_loop
+found_zero:
+    INV z_PtrD JPA loader_while             ; z_PtrD now points beyond source file
+appendfile:
+    JPS LoadFile
+
+; scan for more files to use
+loader_while:
+    LDZ z_pc+1 CPZ z_PtrD+1 FCC loader_loop FGT loader_rts
+    LDZ z_pc+0 CPZ z_PtrD+0 FCS loader_rts
+loader_loop:
+    LDT z_pc CPI 'u' FEQ loader_use
+loader_not:
+    INV z_pc FPA loader_while               ; else z_pc++
+loader_use:
+    INV z_pc LDT z_pc CPI 's' FNE loader_not
+    INV z_pc LDT z_pc CPI 'e' FNE loader_not
+    INV z_pc JPS Next LDT z_pc CPI '"' FNE loader_not
+    INV z_pc CIZ BYTE1(endsrc),z_nextsrc+1 FCS loader_full
+    LDZ z_pc+0 STB _ReadPtr+0
+    LDZ z_pc+1 STB _ReadPtr+1
+    JPS LoadFile
+    LDB _ReadPtr+0 STZ z_pc+0
+    LDB _ReadPtr+1 STZ z_pc+1
+    FPA loader_while
+loader_full:
+    JPS _Print "Use max 5 files.\n"
+    JPA _Prompt
+loader_rts:
+    RTS
+
+Tokenizer:
+    CLB vid CLB cid                         ; start var and call tokens from 0
+    LDZ z_PtrD+0 STB dst+0 LDZ z_PtrD+1 STB dst+1  ; set dst as working destination pointer
+    MIB BYTE0(newitems),itnext+0            ; top end of tokenizer items (keywords, vars, calls)
+    MIB BYTE1(newitems),itnext+1            ; points beyond keyword items
+    JPS ConstInit                           ; init compile-time constants state
+
+    LDZ z_nextsrc+1 STB srcptr+1
+    LDZ z_nextsrc+0 STB srcptr+0
+    AIW 2,srcptr                            ; go up to ->name
+
+t_srcwhile:
+    SIW 24,srcptr                           ; go down to last src->ptr
+    LDB srcptr+1 CPI BYTE1(firstsrc) BCC t_endreached  ; below start page?
+    FNE t_srcok
+    LDB srcptr+0 CPI BYTE0(firstsrc) BCC t_endreached  ; same page: below start offset?
+t_srcok:
+    LDR srcptr STZ z_pc+0 INW srcptr        ; extract ->ptr to source code
+    LDR srcptr STZ z_pc+1 INW srcptr        ; srcptr now points to filename (for error)
+    MIB 1,g_line+0 CLB g_line+1             ; set line number to 1
+
+t_while:
+    JPS Look CPI 0 FEQ t_srcwhile           ; get next char (ignoring #...)
+
+    LDT z_pc CPI 'u' BNE t_measure          ; overlook 'use ...' commands
+    LDZ z_pc+0 PHS LDZ z_pc+1 PHS           ; push current PC
+    INV z_pc LDT z_pc CPI 's' BNE t_pcback
+    INV z_pc LDT z_pc CPI 'e' BNE t_pcback
+    INV z_pc JPS Next
+    LDT z_pc CPI '"' BNE t_pcback           ; now we have found a "...
+t_eatname:
+    INV z_pc LDT z_pc CPI 0 BEQ t_pcback
+    CPI 10 FEQ t_pcback
+    CPI '"' BNE t_eatname
+    INV z_pc JPS Next                       ; skip potential spaces until end of line
+    FPA t_pckeep
+
+t_pcback:
+    PLS STZ z_pc+1 PLS STZ z_pc+0 FPA t_measure  ; go back to u...
+t_pckeep:
+    PLS PLS
+t_measure:
+    CLB ind                                 ; measure indentation
+t_indloop:
+    JPS Look CPI ' ' FEQ t_indent           ; SPACE +1
+    CPI 9 FNE t_inddone                     ; MBB +2
+    INB ind
+t_indent:
+    INB ind INV z_pc FPA t_indloop          ; count indent, consume and look for more indent
+t_inddone:
+    LDB ind LR1 FCS t_inderror              ; uneven spaces = error
+    CPI 30 FLE t_indokay                    ; indent <= 30?
+t_inderror:
+    LDI BYTE0(error11) PHS LDI BYTE1(error11) PHS JPA SourceError  ; error invalid indent
+t_indokay:
+    NOT DEC STB ind                         ; code indentation range -1..30 -> 0xff..0xe0
+
+    JPS Next CPI 0 BEQ t_srcwhile           ; break if EOF
+
+    LDT z_pc CPI 10 FNE t_notenter          ; is this a non-empty line?
+    INW g_line INV z_pc JPA t_while         ; else move over \n without copy, count \n & continue
+
+; START OF NON_EMPTY LINE
+t_notenter:
+    JPS ConstLinePrelude CPI 1 BEQ t_while  ; handles const scope/declaration/def tracking
+    LDB ind STR dst INW dst                 ; write indentation marker
+
+; START OF LINE PROCESSING
+
+t_lineloop:
+    JPS ParseHexLiteral
+    CPI 2 FEQ t_hexoverflow
+    CPI 1 FNE t_next0
+    JPA t_writeconst
+t_hexoverflow:
+    LDI BYTE0(error24) PHS LDI BYTE1(error24) PHS JPA SourceError
+
+t_next0:
+    LDI '+' PHS LDI '=' PHS JPS TakeTwo PLS PLS
+    CPI 0 BEQ t_nexta LDI 'a' JPA t_puttoken  ; fast increment
+t_nexta:
+    LDI '-' PHS LDI '=' PHS JPS TakeTwo PLS PLS
+    CPI 0 BEQ t_next1 LDI 's' JPA t_puttoken  ; fast decrement
+t_next1:
+    LDI '=' PHS LDI '=' PHS JPS TakeTwo PLS PLS
+    CPI 0 BEQ t_next2 LDI 0xd3 JPA t_puttoken
+t_next2:
+    LDI '!' PHS LDI '=' PHS JPS TakeTwo PLS PLS
+    CPI 0 BEQ t_next3 LDI 0xd4 JPA t_puttoken
+t_next3:
+    LDI '<' PHS LDI '<' PHS JPS TakeTwo PLS PLS
+    CPI 0 BEQ t_next4 LDI 0xdd JPA t_puttoken
+t_next4:
+    LDI '<' PHS LDI '=' PHS JPS TakeTwo PLS PLS
+    CPI 0 BEQ t_next5 LDI 0xd5 JPA t_puttoken
+t_next5:
+    LDI '>' PHS LDI '>' PHS JPS TakeTwo PLS PLS
+    CPI 0 BEQ t_next6 LDI 0xde JPA t_puttoken
+t_next6:
+    LDI '>' PHS LDI '=' PHS JPS TakeTwo PLS PLS
+    CPI 0 BEQ t_next7 LDI 0xd6 JPA t_puttoken
+
+t_next7:
+    LDT z_pc                                ; look at single source char instead
+    CPI '<' BNE t_next8 INV z_pc LDI 0xd2 JPA t_puttoken
+t_next8:
+    CPI '>' BNE t_next9 INV z_pc LDI 0xd7 JPA t_puttoken
+
+t_next9:
+    CPI '"' FNE t_next10                    ; "STRING"
+    STR dst INW dst INV z_pc                ; write and consume "
+t_string:
+    LDT z_pc CPI '"' FEQ t_strclose         ; close and consume "
+    CPI 0 FEQ t_strbail CPI 10 FEQ t_strbail  ; close without consuming on 0 and 10
+    JPS TakeOrd STR dst INW dst             ; consume and store (special) char
+    FPA t_string
+t_strclose:
+    INV z_pc                                ; consume source char
+t_strbail:
+    LDI '"' STR dst INW dst JPA t_stopcheck
+
+t_next10:
+    JPS ParseDecimalLiteral32
+    CPI 2 BEQ t_hexoverflow
+    CPI 1 FNE t_next11
+    LDZ z_C+2 ORZ z_C+3 CPI 0 FNE t_writelong
+    CIZ 0x80,z_C+1 FCS t_writelong
+
+t_writeconst:
+    LDI 0xd0 STR dst INW dst                ; ... write word TN_CONST
+    LDZ z_C+0 STR dst INW dst
+    LDZ z_C+1 STR dst INW dst
+    JPA t_stopcheck
+t_writelong:
+    LDI 0xd1 STR dst INW dst                ; ... write long TN_CONST
+    LDZ z_C+0 STR dst INW dst
+    LDZ z_C+1 STR dst INW dst
+    LDZ z_C+2 STR dst INW dst
+    LDZ z_C+3 STR dst INW dst
+    JPA t_stopcheck
+
+; omit these characters, stop check not needed
+t_next11:
+    LDT z_pc
+    CPI ',' BNE t_next12 INV z_pc JPA t_continue  ; comma ,
+t_next12:
+    CPI ';' BNE t_next13 INV z_pc JPA t_continue  ; semi-colon
+t_next13:
+    CPI ':' BNE t_next14 INV z_pc JPA t_continue  ; colon :
+
+t_next14:
+    JPS TakeAlNum CPI 0 FEQ t_else          ; reads AlNum into itnext using alptr
+    CPI 14 FCC t_alnumok
+    LDI BYTE0(error01) PHS LDI BYTE1(error01) PHS JPA SourceError  ; string too long => error invalid var/call
+t_alnumok:
+    JPS ConstSubstitute CPI 1 FEQ t_stopcheck
+    MIB BYTE0(items),itptr+0 MIB BYTE1(items),itptr+1  ; point at start of items dictionary
+
+t_alloop:
+    MBB itptr+0,strcmp_a+0 MBB itptr+1,strcmp_a+1  ; vgl. string @ itptr mit string @ itnext
+    MBB itnext+0,strcmp_b+0 MBB itnext+1,strcmp_b+1
+    JPS strcmp CPI 0 FEQ t_alentry          ; found? itptr then points to that entry
+    LDI 16 ADW itptr CPB itnext+1 FNE t_alloop  ; no match => check next entry
+    LDB itptr+0 CPB itnext+0 FNE t_alloop
+    LDI 14 ADW itnext                       ; reached itptr == itnext, keep name
+    JPS Next CPI '(' FNE t_variable         ; END REACHED w/o match: make it a new item
+    LDI 'S' STR itnext INW itnext           ; write call
+    LDB cid STR itnext INW itnext           ; itnext points to free item now
+    INB cid FPA t_idcheck
+t_variable:
+    LDI 'V' STR itnext INW itnext
+    LDB vid STR itnext INW itnext           ; itnext points to free item now
+    INB vid
+t_idcheck:
+    CPI 0xe0 FCC t_alentry                  ; don't let these numbers be confused with indents
+    LDI BYTE0(error07) PHS LDI BYTE1(error07) PHS JPA SourceError  ; error too many tokens
+t_alentry:
+    LDI 14 ADW itptr                        ; itptr points to start of relevant entry
+    LDR itptr STR dst INW itptr INW dst     ; write token
+    LDR itptr CPI 0xff FEQ t_stopcheck      ; do not store invalid ID (as used for keywords)
+    FPA t_puttoken                          ; and write id != 0xff
+
+t_else:
+    LDT z_pc PHS INV z_pc PLS               ; else *dst++ = *z_pc++ write anything else
+
+t_puttoken:
+    STR dst INW dst                         ; DO THE STOP CHECK IN ANY CASE
+t_stopcheck:
+    LDB dst+1 CPI BYTE1(source_top) FCC t_stopscan
+    FNE t_dictfull
+    LDB dst+0 CPI BYTE0(source_top) FCC t_stopscan
+t_dictfull:
+    LDI BYTE0(error08) PHS LDI BYTE1(error08) PHS JPA SourceError
+t_stopscan:
+    LDB dst+1 CPB g_stop+1                  ; if (dst >= stop) return;
+    FGT t_rts FNE t_continue
+    LDB dst+0 CPB g_stop+0 FCS t_rts        ; MSBs are equal
+
+t_continue:
+    JPS Next
+    CPI 10 BEQ t_while CPI 0 BEQ t_while    ; line ends?
+    JPA t_lineloop                          ; line goes on
+
+t_endreached:
+    LDI 0xff STR dst
+t_rts:
+    RTS
+
+srcptr:  .2byte 0xffff                      ; pointer into sources dict (vector)
+itnext:  .2byte 0xffff                      ; init to beyond keywords
+itptr:   .2byte 0xffff                      ; used as item search pointer
+ind:     .byte  0xff                        ; measured indentation
+dst:     .2byte 0xffff                      ; destination (write) pointer
+vid:     .byte  0xff                        ; ids of var and call identifiers
+cid:     .byte  0xff
+const_decl_type: .byte 0xff                 ; 1=char, 2=int, 4=long
+const_fun_indent: .byte 0xff                ; encoded indent marker for current function def line
+const_scan: .2byte 0xffff                   ; constants lookup scan pointer
+const_tmp:  .2byte 0xffff                   ; constants temp pointer
+const_name: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+
+; compares string at 'strcmp_b' and 'strcmp_a' for equality
+; returns: A=0: equal, A=1: not equal
+strcmp:
+    LDB @strcmp_b: 0xffff
+    CPB @strcmp_a: 0xffff                   ; self-modifying code
+
+    FNE strcmpfalse CPI 0 FEQ strcmpexit
+    INW strcmp_a INW strcmp_b
+    FPA strcmp
+strcmpfalse:
+    LDI 1
+strcmpexit:
+    RTS
+
+; takes (specical) character including '\n' or '\e', returns result in A
+; NOTE: 0, 10 and " have to be checked before!
+TakeOrd:
+    LDT z_pc CPI '\\' FNE takeordret
+    INV z_pc LDT z_pc                       ; look at next character
+    CPI 0 FEQ takeordexit CPI 10 FEQ takeordexit  ; exit without consuming 0 or \n
+takeo0:
+    CPI 'r' FNE takeo1 LDI 13 FPA takeordret
+takeo1:
+    CPI 'n' FNE takeo2 LDI 10 FPA takeordret
+takeo2:
+    CPI 't' FNE takeo3 LDI 9 FPA takeordret
+takeo3:
+    CPI 'e' FNE takeo4 LDI 27 FPA takeordret
+takeo4:
+    CPI '0' FNE takeordret LDI 0
+takeordret:
+    PHS INV z_pc PLS RTS
+takeordexit:
+    LDI '\\' RTS
+
+; returns in A the next non-shite-space character including '\0' and '\n' but omitting # comments
+; modifies: z_pc
+Next:
+    JPS Look
+    CPI ' ' FEQ nexttake                    ; ' '
+    CPI 9 FEQ nexttake                      ; '\t'
+    CPI 13 FEQ nexttake                     ; '\r'
+    RTS
+nexttake:
+    INV z_pc FPA Next
+
+; Takes two consecutive chars if matching (result = 1), else result = 0
+; push: first char, second char
+; pull #, result
+TakeTwo:
+    LDS 4 CPT z_pc FNE firstfalse
+    INV z_pc
+    LDS 3 CPT z_pc FNE secondfalse
+    INV z_pc LDI 1 STS 4 RTS
+secondfalse:
+    DEV z_pc                                ; move back again
+firstfalse:
+    LDI 0 STS 4 RTS                         ; return false
+
+; --------------------------------------------------------------------------------------
+; TOKENIZER PARSING ROUTINES
+; --------------------------------------------------------------------------------------
+
+; takes an alnum into 'itnext' position
+; 'alptr' then points beyond the zero-termination, stores length in 'alcount' and A
+TakeAlNum:
+    MBB itnext+0,alptr+0 MBB itnext+1,alptr+1  ; init alptr
+    CLB alcount LDT z_pc                    ; first char needs no be an alpha
+    CPI 'z' FGT takeaout                    ; one above 'z'
+    CPI 'a' FCS takeisa
+    CPI 'Z' FGT takeaout                    ; one above 'Z'
+    CPI 'A' FCC takeaout
+takeisa:
+    STR alptr INW alptr INV z_pc INB alcount  ; store the char and continue
+takeanloop:
+    LDT z_pc                                ; consecutive chars
+    CPI 'z' FGT takeaout
+    CPI 'a' FCS takeisa
+    CPI 'Z' FGT takeaout
+    CPI 'A' FCS takeisa
+    CPI '9' FGT takeaout                    ; one above '9'
+    CPI '0' FCS takeisa
+takeaout:
+    LDI 0 STR alptr INW alptr
+    LDB alcount RTS                         ; set null termination
+
+alcount:  .byte  0x00
+alptr:    .2byte 0x0000
+
+; returns current character in A including '\0' and '\n' but omitting any # comments
+; modifies: z_pc
+Look:
+    LDT z_pc CPI '#' BNE lookexit           ; returns next character, ignores comments
+lookcomment:
+    INV z_pc LDT z_pc
+    CPI 0 BEQ lookexit                      ; ENDMARKER
+    CPI 10 BNE lookcomment                  ; NEWLINE
+lookexit:
+    RTS
+
+; --------------------------------------------------------------------------------------
+; 16-BIT MATH LIBRARY
+; --------------------------------------------------------------------------------------
+
+
+int_lsr:
+    CIZ 0,z_B+0 FEQ intlsrdone
+    FPL intlsrpos
+    NEG FPA intlslpos
+intlsrpos:
+    STZ z_count
+intlsrloop:
+    LRZ z_A+1 RRZ z_A+0
+    DEZ z_count FGT intlsrloop
+intlsrdone:
+    RTS
+
+int_lsl:
+    CIZ 0,z_B+0 FEQ intlsldone
+    FPL intlslpos
+    NEG FPA intlsrpos
+intlslpos:
+    STZ z_count
+intlslloop:
+    LLV z_A DEZ z_count FGT intlslloop
+intlsldone:
+    RTS
+
+; strptr points to a null-terminated string
+; modifies: z_C
+int_tostr:
+    CLB int_str                             ; PRINT A 16-BIT REGISTER AS DEC NUMBER
+    MVV z_A,z_C                             ; copy A to working reg C so A remains unchanged
+    RL1 FCC int_notneg
+    NEV z_C MIB '-',int_str                 ; negative sign
+int_notneg:
+    MIB BYTE0(int_str+5),strptr+0           ; point to last digit of output string
+    MIB BYTE1(int_str+5),strptr+1
+int_start:
+    CLZ z_C+2                               ; clear upper register and carry store
+    MIZ 16,z_count
+int_shift:
+    LDZ z_C+2 RL1                           ; activate C stored in bit 7 (initially = 0)
+    RLV z_C RLZ z_C+2                       ; shift C back in and shift everything one step left
+    CPI 10 FCC int_done                     ; 10 did not fit in => do not set bit 7 as carry
+    ADI 118 STZ z_C+2                       ; 10 went into it => subtract 10 and set bit 7 as carry (-10 +128)
+int_done:
+    DEZ z_count FNE int_shift
+    LDZ z_C+2 ANI 0x7f                      ; erase a possible stored carry
+    ADI '0' STR strptr DEW strptr           ; store remainder as char
+    LDZ z_C+2 RL1                           ; restore stored carry flag
+    RLV z_C                                 ; shift in C and shift everything one step up
+    RLZ z_C+2                               ; shift C into 'remember' and shift an old carry out
+    LDI 0 CPZ z_C+0 FNE int_start           ; prüfe nach, ob big register null enthält
+    CPZ z_C+1 FNE int_start
+    LDB int_str CPI '-' FNE int_out
+    STR strptr RTS
+int_out:
+    INW strptr RTS
+int_str:  .cstr  "-32768"
+strptr:   .2byte 0x0000
+
+; prints signed 32-bit z_C in decimal via repeated subtraction over powers of ten
+PrintLongZC:
+    CIZ 0,z_C+3 FPL .absok
+    LDI '-' JAS _PrintChar
+    NEQ z_C
+.absok:
+    CLB z_flag
+    MIZ 10,z_count
+    MIV long_pow10_table,longptr
+.placeloop:
+    LDR longptr STZ z_E+0 INW longptr
+    LDR longptr STZ z_E+1 INW longptr
+    LDR longptr STZ z_E+2 INW longptr
+    LDR longptr STZ z_E+3 INW longptr
+    LDI '0' STZ z_A+0
+.digitloop:
+    LDZ z_C+3 CPZ z_E+3 FGT .subtract
+    FNE .emitmaybe
+    LDZ z_C+2 CPZ z_E+2 FGT .subtract
+    FNE .emitmaybe
+    LDZ z_C+1 CPZ z_E+1 FGT .subtract
+    FNE .emitmaybe
+    LDZ z_C+0 CPZ z_E+0 FCS .subtract
+    FPA .emitmaybe
+.subtract:
+    SQQ z_E,z_C
+    LDZ z_A+0 ADI 1 STZ z_A+0
+    FPA .digitloop
+.emitmaybe:
+    LDB z_flag CPI 0 FNE .printdigit
+    CIZ '0',z_A+0 FNE .printdigit
+    CIZ 1,z_count FNE .nextplace
+.printdigit:
+    MIZ 1,z_flag
+    LDZ z_A+0 JAS _PrintChar
+.nextplace:
+    DEZ z_count BNE .placeloop
+    RTS
+
+long_pow10_table:
+    .byte 0x00,0xca,0x9a,0x3b              ; 1000000000
+    .byte 0x00,0xe1,0xf5,0x05              ; 100000000
+    .byte 0x80,0x96,0x98,0x00              ; 10000000
+    .byte 0x40,0x42,0x0f,0x00              ; 1000000
+    .byte 0xa0,0x86,0x01,0x00              ; 100000
+    .byte 0x10,0x27,0x00,0x00              ; 10000
+    .byte 0xe8,0x03,0x00,0x00              ; 1000
+    .byte 0x64,0x00,0x00,0x00              ; 100
+    .byte 0x0a,0x00,0x00,0x00              ; 10
+    .byte 0x01,0x00,0x00,0x00              ; 1
+
+PushLongLhsSpill:
+    MVV lhs_spill_ptr,longptr
+    AIW 4,longptr
+    LDB longptr+1 CPI BYTE1(lhs_spill_end) FCC .store
+    BNE memerror
+    LDB longptr+0 CPI BYTE0(lhs_spill_end) FCC .store
+    BNE memerror
+.store:
+    MVV lhs_spill_ptr,longptr
+    LDZ z_C+0 STR longptr INW longptr
+    LDZ z_C+1 STR longptr INW longptr
+    LDZ z_C+2 STR longptr INW longptr
+    LDZ z_C+3 STR longptr INW longptr
+    LDZ z_type STR longptr
+    AIV 5,lhs_spill_ptr
+    RTS
+
+PopLongLhsSpill:
+    SIV 5,lhs_spill_ptr
+    MVV lhs_spill_ptr,longptr
+    LDR longptr STZ z_E+0 INW longptr
+    LDR longptr STZ z_E+1 INW longptr
+    LDR longptr STZ z_E+2 INW longptr
+    LDR longptr STZ z_E+3 INW longptr
+    LDR longptr STZ z_flag
+    RTS
+
+PopIntLhsToLongE:
+    ; Standard convention: data on stack is [MSB, LSB] (pushed LSB first)
+    ; Stack after JPS: [return_low, return_high, MSB, LSB, ...]
+    ; Use LDS to read without popping; caller cleans up with PLS PLS
+    LDS 3 STZ z_E+1            ; read MSB from stack offset 3
+    LDS 4 STZ z_E+0            ; read LSB from stack offset 4
+    CLV z_E+2                  ; clear upper word
+    CIZ 0,z_E+1
+    FPL pop_int_lhs_long_rts
+    MIZ 0xff,z_E+2             ; sign extend
+    MIZ 0xff,z_E+3
+pop_int_lhs_long_rts:
+    RTS
+
+PopIntLhsHiLoToLongE:
+    PLS STZ pop_int_ret+0      ; save return address low
+    PLS STZ pop_int_ret+1      ; save return address high
+    PLS STZ z_E+1              ; now pop actual data
+    PLS STZ z_E+0
+    CLV z_E+2
+    CIZ 0,z_E+1
+    FPL pop_int_hilo_long_rts
+    MIZ 0xff,z_E+2
+    MIZ 0xff,z_E+3
+pop_int_hilo_long_rts:
+    LDZ pop_int_ret+1 PHS      ; restore return address high
+    LDZ pop_int_ret+0 PHS      ; restore return address low
+    RTS
+
+StoreLongResult:
+    JPS putL
+    JPS CheckLongTop
+    CLZ z_refset
+    RTS
+
+LongNegE:
+    NEQ z_E
+    RTS
+
+LongNegC:
+    NEQ z_C
+    RTS
+
+LongNotC:
+    NOQ z_C
+    RTS
+
+LongAddEC:
+    AQQ z_E,z_C
+    RTS
+
+LongAddStore:
+    JPS getL
+    JPS LongAddEC
+    JPS StoreLongResult
+    RTS
+
+LongSubEC:
+    SQQ z_C,z_E
+    MQQ z_E,z_C
+    RTS
+
+LongSubStore:
+    JPS getL
+    JPS LongSubEC
+    JPS StoreLongResult
+    RTS
+
+LongAndEC:
+    LDZ z_E+0 AN.Z z_C+0
+    LDZ z_E+1 AN.Z z_C+1
+    LDZ z_E+2 AN.Z z_C+2
+    LDZ z_E+3 AN.Z z_C+3
+    RTS
+
+LongAndStore:
+    JPS getL
+    JPS LongAndEC
+    JPS StoreLongResult
+    RTS
+
+LongOrEC:
+    LDZ z_E+0 OR.Z z_C+0
+    LDZ z_E+1 OR.Z z_C+1
+    LDZ z_E+2 OR.Z z_C+2
+    LDZ z_E+3 OR.Z z_C+3
+    RTS
+
+LongOrStore:
+    JPS getL
+    JPS LongOrEC
+    JPS StoreLongResult
+    RTS
+
+LongXorEC:
+    LDZ z_E+0 XRZ z_C+0 STZ z_C+0
+    LDZ z_E+1 XRZ z_C+1 STZ z_C+1
+    LDZ z_E+2 XRZ z_C+2 STZ z_C+2
+    LDZ z_E+3 XRZ z_C+3 STZ z_C+3
+    RTS
+
+LongXorStore:
+    JPS getL
+    JPS LongXorEC
+    JPS StoreLongResult
+    RTS
+
+CheckLongDivisor:
+    LDZ z_C+0 ORZ z_C+1 ORZ z_C+2 ORZ z_C+3 CPI 0 FNE checklongdiv_rts
+    LDI BYTE0(error22) PHS LDI BYTE1(error22) PHS JPA Error
+checklongdiv_rts:
+    RTS
+
+
+LongMulEC:
+    CLZ z_flag
+    CIZ 0,z_E+3 FPL longmul_lhsok
+    INZ z_flag
+    JPS LongNegE
+longmul_lhsok:
+    CIZ 0,z_C+3 FPL longmul_rhsok
+    INZ z_flag
+    JPS LongNegC
+longmul_rhsok:
+    MQQ z_C,z_G
+    MVV z_E,z_A
+    MVV z_G,z_B
+    JPS Mul16FullABToC
+    MQQ z_C,z_F
+
+    MVV z_E,z_A
+    MVV z_G+2,z_B
+    JPS Mul16FullABToC
+    LDZ z_C+0 AD.Z z_F+2
+    LDZ z_C+1 AC.Z z_F+3
+
+    MVV z_E+2,z_A
+    MVV z_G,z_B
+    JPS Mul16FullABToC
+    LDZ z_C+0 AD.Z z_F+2
+    LDZ z_C+1 AC.Z z_F+3
+
+    MQQ z_F,z_C
+    LDB z_flag ANI 1 CPI 1 FNE longmul_rts
+    JPS LongNegC
+longmul_rts:
+    RTS
+
+LongMulStore:
+    JPS getL
+    JPS LongMulEC
+    JPS StoreLongResult
+    RTS
+
+; compare unsigned lhs z_F with rhs z_C
+; result in z_flag: 0=equal, 1=less, 2=greater
+LongUCompareFC:
+    LDZ z_F+3 CPZ z_C+3 FGT longucmp_greater FNE longucmp_less
+    LDZ z_F+2 CPZ z_C+2 FGT longucmp_greater FNE longucmp_less
+    LDZ z_F+1 CPZ z_C+1 FGT longucmp_greater FNE longucmp_less
+    LDZ z_F+0 CPZ z_C+0 FGT longucmp_greater FNE longucmp_less
+    CLB z_flag RTS
+longucmp_less:
+    MIB 1,z_flag RTS
+longucmp_greater:
+    MIB 2,z_flag RTS
+
+LongDivEC:
+    CLZ z_D+0
+    CIZ 0,z_E+3 FPL longdiv_lhsok
+    INZ z_D+0
+    JPS LongNegE
+longdiv_lhsok:
+    CIZ 0,z_C+3 FPL longdiv_rhsok
+    INZ z_D+0
+    JPS LongNegC
+longdiv_rhsok:
+    CLQ z_F
+    MIZ 32,z_count
+longdiv_loop:
+    LLQ z_E
+    RLQ z_F
+    JPS LongUCompareFC
+    LDB z_flag CPI 1 FEQ longdiv_skip
+    SQQ z_C,z_F
+    INZ z_E+0
+longdiv_skip:
+    DEZ z_count FNE longdiv_loop
+    MQQ z_E,z_C
+    LDB z_D+0 ANI 1 CPI 1 FNE longdiv_rts
+    JPS LongNegC
+longdiv_rts:
+    RTS
+
+LongDivStore:
+    JPS getL
+    JPS CheckLongDivisor
+    JPS LongDivEC
+    JPS StoreLongResult
+    RTS
+
+LongLsl:
+    CIZ 0,z_B+0 FEQ longlsl_done
+    FPL longlsl_pos
+    NEG FPA longasr_pos
+longlsl_pos:
+    STZ z_count
+longlsl_loop:
+    LLQ z_C
+    DEZ z_count FGT longlsl_loop
+longlsl_done:
+    RTS
+
+LongAsr:
+    CIZ 0,z_B+0 FEQ longasr_done
+    FPL longasr_pos
+    NEG FPA longlsl_pos
+longasr_pos:
+    STZ z_count
+longasr_loop:
+    LDZ z_C+3 LL1
+    RRZ z_C+3
+    RRZ z_C+2
+    RRZ z_C+1
+    RRZ z_C+0
+    DEZ z_count FGT longasr_loop
+longasr_done:
+    RTS
+
+; compare signed lhs z_E with rhs z_C
+; result in z_flag: 0=equal, 1=less, 2=greater
+LongCompareEC:
+    CIZ 0,z_E+3 FMI longcmp_lhsneg
+    CIZ 0,z_C+3 BMI longcmp_greater
+    FPA longcmp_same
+longcmp_lhsneg:
+    CIZ 0,z_C+3 BPL longcmp_less
+longcmp_same:
+    LDZ z_E+3 CPZ z_C+3 BGT longcmp_greater BNE longcmp_less
+    LDZ z_E+2 CPZ z_C+2 BGT longcmp_greater BNE longcmp_less
+    LDZ z_E+1 CPZ z_C+1 BGT longcmp_greater BNE longcmp_less
+    LDZ z_E+0 CPZ z_C+0 BGT longcmp_greater BNE longcmp_less
+    CLB z_flag RTS
+longcmp_less:
+    MIB 1,z_flag RTS
+longcmp_greater:
+    MIB 2,z_flag RTS
+
+LongCmpEqResult:
+    LDB z_flag CPI 0 BEQ int_true
+    JPA int_false
+
+LongCmpNeResult:
+    LDB z_flag CPI 0 BNE int_true
+    JPA int_false
+
+LongCmpLtResult:
+    LDB z_flag CPI 1 BEQ int_true
+    JPA int_false
+
+LongCmpLeResult:
+    LDB z_flag CPI 2 BNE int_true
+    JPA int_false
+
+LongCmpGeResult:
+    LDB z_flag CPI 1 BNE int_true
+    JPA int_false
+
+LongCmpGtResult:
+    LDB z_flag CPI 2 BEQ int_true
+    JPA int_false
+
+ScalarTruthy:
+    CIZ 4,z_type FEQ scalartrue_long
+    JPS get
+    LDZ z_A+0 ORZ z_A+1
+    RTS
+scalartrue_long:
+    JPS getL
+    LDZ z_C+0 ORZ z_C+1 ORZ z_C+2 ORZ z_C+3
+    RTS
+
+int_div:
+    CLZ z_flag                              ; clear the sign byte
+    CIZ 0,z_A+1 FPL divanotneg              ; make A and B positive, evaluate the sign of result
+    INZ z_flag NEV z_A                      ; store a sign, negate A                                    ;
+divanotneg:
+    CIZ 0,z_B+1 FPL divbnotneg
+    INZ z_flag NEV z_B                      ; store a(nother) sign, negate B
+divbnotneg:
+    MZZ z_B+0,z_B+1 CLZ z_B+0               ; move the lower half of B to upper half, clear lower half
+    CLV z_D                                 ; clear result E
+    MIZ 8,z_count                           ; pre-init the shiftcounter (needs modification below)
+divup:
+    LDZ z_B+1 LL1 FMI divloop               ; ist oberstes bit vom B schon 'ganz oben'?
+    STZ z_B+1 INZ z_count FPA divup         ; increase number of shifts and shift upper B one step up
+divloop:
+    MVV z_A,z_C                             ; copy A to C
+    LDZ z_B+0 SUV z_A+0 FCC divcarry0 SZZ z_B+1,z_A+1 FCS divresult  ; A = A - B (B fits in A => shift '1' into E)
+divcarry0:
+    MVV z_C,z_A                             ; restore A from C (B does not fit in A => shift '0' into E)
+divresult:
+    RLV z_D                                 ; E = E<<1 | C (1: B fit in A, 0: B does not fit into A)
+    LRZ z_B+1 RRZ z_B+0                     ; shift B one step down
+    DEZ z_count FCS divloop
+    MVV z_D,z_A                             ; move result back into A
+    LDZ z_flag LR1 FCC divallnotneg
+    NEV z_A
+divallnotneg:
+    RTS
+
+; ------------------------------------------------------------------------------------------------
+; INTERPRETER: SUPPORTING FUNCTIONS
+; ------------------------------------------------------------------------------------------------
+
+; Reads an element of the math stack (int or char -> int, depending on z_type) into z_A
+get:
+    CIZ 4,z_type FEQ getlongerr
+    CIZ 2,z_type FEQ getint
+    LDT z_sp STZ z_A+0                      ;                       ; load char and cast to int in C-style
+    LL1 FCS getminus
+    CLZ z_A+1 RTS
+getminus:
+    MIZ 0xff,z_A+1 RTS
+getint:
+    LDT z_sp STZ z_A+0                      ; load int
+    LDT z_spi STZ z_A+1
+    RTS
+getlongerr:
+    LDI BYTE0(error06) PHS LDI BYTE1(error06) PHS JPA Error
+
+; Put z_A as single-element value on math stack. Requires 'z_type' to be set to desired type.
+put:
+    CLZ z_cnt+1 MIZ 1,z_cnt+0               ; set element count to one in any case
+    CPZ z_type FEQ putchar
+    LDZ z_A+1 STT z_spi                     ; store single int
+putchar:
+    LDZ z_A+0 STT z_sp
+    RTS
+
+; Reads an element of the math stack (int or char -> int, depending on z_type) into z_B
+getB:
+    CIZ 4,z_type BEQ getBlongerr
+    CIZ 2,z_type BEQ getBint
+    LDT z_sp STZ z_B+0                      ; load char and cast to int in C-style
+    LL1 FCS getBminus
+    CLZ z_B+1 RTS
+getBminus:
+    MIZ 0xff,z_B+1 RTS
+getBint:
+    LDT z_sp STZ z_B+0                      ; load int
+    LDT z_spi STZ z_B+1
+    RTS
+getBlongerr:
+    LDI BYTE0(error06) PHS LDI BYTE1(error06) PHS JPA Error
+
+; sign-extends the scalar expression at z_sp/z_type into z_C
+getL:
+    CIZ 4,z_type FEQ getLlong
+    JPS get
+    CLQ z_C
+    MVV z_A,z_C
+    CIZ 0,z_A+1 FPL getLrts
+    MIZ 0xff,z_C+2
+    MIZ 0xff,z_C+3
+getLrts:
+    RTS
+getLlong:
+    LDT z_sp STZ z_C+0
+    LDT z_spi STZ z_C+1
+    MVV z_sp,longptr
+    AIW 2,longptr
+    LDR longptr STZ z_C+2 INW longptr
+    LDR longptr STZ z_C+3
+    RTS
+
+; writes the 32-bit value in z_C as one long scalar at z_sp
+putL:
+    MIZ 4,z_type
+    MIZ 1,z_cnt+0 CLZ z_cnt+1
+    LDZ z_C+0 STT z_sp
+    LDZ z_C+1 STT z_spi
+    MVV z_sp,longptr
+    AIW 2,longptr
+    LDZ z_C+2 STR longptr INW longptr
+    LDZ z_C+3 STR longptr
+    RTS
+
+CheckLongTop:
+    MVV z_sp,longptr
+    AIW 3,longptr
+    LDB longptr+1 CPI BYTE1(endsp) FCC checklong_rts
+    BNE memerror
+    LDB longptr+0 CPI BYTE0(endsp) FCC checklong_rts
+    BNE memerror
+checklong_rts:
+    RTS
+
+CheckZspiTop:
+    LDB z_spi+1 CPI BYTE1(endsp) FCC checkzspi_rts
+    BNE memerror
+    LDB z_spi+0 CPI BYTE0(endsp) FCC checkzspi_rts
+    BNE memerror
+checkzspi_rts:
+    RTS
+
+ScaleCountByType:
+    CIZ 1,z_type FEQ scalecnt_rts
+    LLV z_cnt
+    CIZ 2,z_type FEQ scalecnt_rts
+    LLV z_cnt
+scalecnt_rts:
+    RTS
+
+ScaleAByType:
+    CIZ 1,z_type FEQ scalea_rts
+    LLV z_A
+    CIZ 2,z_type FEQ scalea_rts
+    LLV z_A
+scalea_rts:
+    RTS
+
+ScaleBByType:
+    CIZ 1,z_type FEQ scaleb_rts
+    LLV z_B
+    CIZ 2,z_type FEQ scaleb_rts
+    LLV z_B
+scaleb_rts:
+    RTS
+
+; Enforces that a specific char is consumed, throws an error otherwise
+AssertCSquare:
+    LDT z_pc CPI ']' BEQ asstrue
+    LDI BYTE0(error30) PHS LDI BYTE1(error30) PHS JPA Error
+AssertORound:
+    LDT z_pc CPI '(' BEQ asstrue
+    LDI BYTE0(error31) PHS LDI BYTE1(error31) PHS JPA Error
+AssertCRound:
+    LDT z_pc CPI ')' BEQ asstrue
+    LDI BYTE0(error32) PHS LDI BYTE1(error32) PHS JPA Error
+AssertEquals:
+    LDT z_pc CPI '=' FEQ asstrue
+    LDI BYTE0(error33) PHS LDI BYTE1(error33) PHS JPA Error
+asstrue:
+    INV z_pc RTS
+
+; skips code until indentation <= target indentation or ENDMARKER is reached
+gotadvance:
+    INV z_pc
+SkipStmt:
+    LDT z_pc CPI 0xe0 FCS gotindent         ; move over current line until next indent is found
+    CPI 0xd0 FNE .notlong
+    AIV 3,z_pc FPA SkipStmt                 ; hop over 16-bit numbers like 254 that might look like fake indent
+.notlong:
+    CPI 0xd1 FNE gotadvance
+    AIV 5,z_pc FPA SkipStmt                 ; hop over 32-bit const tokens too
+gotindent:
+    NOT DEC STZ z_mind INV z_pc             ; leaves with MEASURED and consumed indentation
+    CZZ z_mind,z_tind FMI SkipStmt
+    RTS
+
+; --------------------------------------------------------------------------------------
+; CALL AND VAR HANDLER
+; --------------------------------------------------------------------------------------
+
+
+; Search var dictionary for *latest* match. Returns pointer to variable *type* data.
+; push: #, var_id
+; pull: var_msb, var_lsb
+getVar:
+    ; tiny hot cache for repeated lookups in loops:
+    ; key = (var_id, current sub, current var-top pointer)
+    LDS 3 CPZ z_vcache_id FNE var_scan
+    LDZ z_sub CPZ z_vcache_sub FNE var_scan
+    LDZ z_nextvar+0 CPZ z_vcache_top+0 FNE var_scan
+    LDZ z_nextvar+1 CPZ z_vcache_top+1 FNE var_scan
+    LDB z_vcache_ptr+1 STS 3 LDB z_vcache_ptr+0 STS 4 RTS
+var_scan:
+    MVV z_nextvar,getptr                    ; copy var top ptr
+varnext:
+    SIV 9,getptr                            ; move down one var
+    CPI BYTE1(firstvar) FCS varokay         ; MSB below start of var dict? -> end search
+varerror:
+    LDI BYTE0(error01) PHS LDI BYTE1(error01) PHS JPA Error  ; error undefined var
+varokay:
+    LDS 3 CPT getptr FNE varnext            ; matching ID?
+    INV getptr LDT getptr CPZ z_sub FEQ var_ok  ; advance to vp->sub
+    CPI 0xff FEQ var_ok                     ; check for global
+    SIV 10,getptr                           ; not the right sub level => down one var
+    CPI BYTE1(firstvar) FCS varokay
+    FPA varerror
+var_ok:
+    INV getptr                              ; advance to ->type data
+    LDS 3 STZ z_vcache_id                   ; refresh lookup cache with this hit
+    MZZ z_sub,z_vcache_sub
+    MVV z_nextvar,z_vcache_top
+    MVV getptr,z_vcache_ptr
+    STS 3 LDZ getptr+0 STS 4                ; put var ptr to type on stack
+    RTS
+
+; search call dictionary for *latest* match
+; push: #, call_id
+; pull: pc_msb, pc_lsb
+getCall:
+    MZZ z_nextcall+0,getptr+0               ; copy call top ptr
+    MZZ z_nextcall+1,getptr+1
+callnext:
+    SIV 3,getptr                            ; move down one call
+    CPI BYTE1(firstcall) FCS callokay       ; stop below first call
+    LDI BYTE0(error01) PHS LDI BYTE1(error01) PHS JPA Error  ; error undefined call
+callokay:
+    LDS 3 CPT getptr FNE callnext
+    INV getptr LDT getptr STS 4             ; put call jump address on stack
+    INV getptr LDT getptr STS 3
+    RTS
+
+; --------------------------------------------------------------------------------------
+; EXPRESSIONS
+; --------------------------------------------------------------------------------------
+
+
+Factor:
+    CLZ z_refset LDT z_pc                   ; use default referenced element size 1
+
+    CPI 0xd0 FNE fac_next2                  ; TN_INT_CONST
+    INV z_pc MIZ 2,z_type
+    MIZ 1,z_cnt+0 CLZ z_cnt+1               ; single int
+    LDT z_pc STT z_sp INV z_pc
+    LDT z_pc STT z_spi INV z_pc
+    RTS
+
+fac_next2:
+    CPI 0xd1 BNE fac_next2b                 ; TN_LONG_CONST
+    INV z_pc
+    LDT z_pc STZ z_C+0 INV z_pc
+    LDT z_pc STZ z_C+1 INV z_pc
+    LDT z_pc STZ z_C+2 INV z_pc
+    LDT z_pc STZ z_C+3 INV z_pc
+    JPS putL JPS CheckLongTop
+    RTS
+
+fac_next2b:
+    CPI '&' FNE fac_next3                   ; VARIABLE
+    PHS INV z_pc                            ; push & consume '&'
+    LDT z_pc CPI 'V' FEQ fac_isvar
+    LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA Error  ; error Invalid expression
+fac_next3:
+    CPI 'V' BNE fac_next4
+    PHS                                     ; push 'V'
+fac_isvar:
+    INV z_pc                                ; consume, either 'V' or '&' was pushed above
+    LDT z_pc PHS PHS INV z_pc JPS getVar    ; get & consume variable ID, push v->type on stack
+    PLS STZ facptr+1 PLS STZ facptr+0       ; load var item onto stack:
+    LDT facptr PHS INV facptr               ; ->type
+    LDT facptr PHS INV facptr LDT facptr PHS INV facptr  ; ->cnt
+    LDT facptr PHS INV facptr LDT facptr PHS  ; ->ptr
+    LDT z_pc CPI '[' BNE fac_fullvar        ; [|] OPERATOR PRESENT?
+
+; PARSE [|] OPERATOR
+    INV facptr LDT facptr STB slice_max+0 INV facptr LDT facptr STB slice_max+1
+    CLB slice_start+0 CLB slice_start+1     ; default start = 0
+    LDS 4 STB slice_count+0 LDS 3 STB slice_count+1  ; default count = ->cnt
+    INV z_pc LDT z_pc CPI '|' FNE fac_nopipe  ; consume [, parse for |
+    INV z_pc LDT z_pc CPI ']' BEQ fac_closed
+    JPS Expr JPS get
+    LDZ z_A+0 STB slice_count+0 LDZ z_A+1 STB slice_count+1
+    LL1 BCC fac_closed                      ; anz < 0 => error
+    JPA fac_error
+fac_nopipe:
+    JPS Expr JPS get
+    LDZ z_A+0 STB slice_start+0 LDZ z_A+1 STB slice_start+1
+    LL1 BCS fac_error                       ; start < 0 => error
+    LDT z_pc CPI '|' BNE fac_nopipe2
+    INV z_pc LDT z_pc CPI ']' FNE fac_else
+    LDB slice_count+1 STZ z_A+1 LDB slice_count+0 STZ z_A+0
+    LDB slice_start+1 SU.Z z_A+1 LDB slice_start+0 SUV z_A
+    LDZ z_A+0 STB slice_count+0 LDZ z_A+1 STB slice_count+1
+    LL1 BCC fac_closed                      ; anz = anz - start < 0 => error
+    JPA fac_error
+fac_else:
+    JPS Expr JPS get
+    LDB slice_start+1 SU.Z z_A+1 LDB slice_start+0 SUV z_A
+    LDZ z_A+0 STB slice_count+0 LDZ z_A+1 STB slice_count+1
+    LL1 FCC fac_closed                      ; anz = end - start < 0 => error
+    JPA fac_error
+fac_nopipe2:
+    MIB 1,slice_count+0 MIB 0,slice_count+1
+fac_closed:
+    JPS AssertCSquare
+    LDB slice_max+1 STZ z_A+1 LL1 FCS fac_passed  ; z_A = ->max, ->max = 0xffff means ignore test
+    LDB slice_max+0 STZ z_A+0
+    LDB slice_count+1 SU.Z z_A+1 LDB slice_count+0 SUV z_A LL1 BCS fac_error
+    LDB slice_start+1 SU.Z z_A+1 LDB slice_start+0 SUV z_A LL1 BCS fac_error
+
+; copies variable elements onto the math stack
+fac_passed:
+    LDS 6 CPI '&' FEQ fac_elemref           ; ELEMENTS [|] OF VARIABLE
+    LDS 5 STZ z_type                        ; z_type = vp->type
+    LDB slice_count+0 STZ z_A+0 STZ z_cnt+0
+    LDB slice_count+1 STZ z_A+1 STZ z_cnt+1  ; z_A = anz, z_cnt = anz
+    LDB slice_start+0 STZ z_B+0 LDB slice_start+1 STZ z_B+1
+    CIZ 1,z_type FEQ fac_elembyte
+    JPS ScaleBByType
+    JPS ScaleAByType                        ; scale start/count by element width
+fac_elembyte:
+    LDS 2 STB fac_src0+0 LDS 1 STB fac_src0+1  ; source address = ->ptr + startindex * ->type
+    LDZ z_B+1 AD.B fac_src0+1 LDZ z_B+0 ADW fac_src0
+    LDZ z_sp+0 STB fac_dst0+0 LDZ z_sp+1 STB fac_dst0+1  ; z_sp = destination
+fac_loop0:
+    DEV z_A FCC fac_endelem
+    MBB @fac_src0: 0xffff,@fac_dst0: 0xffff
+    INW fac_src0 INW fac_dst0 FPA fac_loop0
+fac_endelem:
+    LDI 0 STR fac_dst0                      ; write zero-termination byte
+    LDB fac_dst0+1 CPI BYTE1(endsp) FCC fac_elemrts  ; MATH MEMORY CHECK SINGLE FACTOR
+    FNE memerror
+    LDB fac_dst0+0 CPI BYTE0(endsp) FCC fac_elemrts
+    FNE memerror
+memerror:
+    LDI BYTE0(error08) PHS LDI BYTE1(error08) PHS JPA Error  ; error out of memory
+fac_elemref:
+    MIZ 2,z_type MIZ 1,z_refset             ; ELEMENT REFERENCE
+    LDB slice_start+1 STZ z_B+1 LDB slice_start+0 STZ z_B+0
+    LDS 5 CPI 1 FEQ fac_char                ; ->type = char?
+    LLV z_B
+    LDS 5 CPI 2 FEQ fac_char
+    LLV z_B                                 ; start x 4 for long
+fac_char:
+    LDS 2 ADV z_B LDS 1 AD.Z z_B+1          ; add vp->ptr to z_B
+    LDB slice_count+0 STZ z_refcnt+0 LDB slice_count+1 STZ z_refcnt+1
+fac_elemrts:
+    LDI 6 AD.B 0xffff RTS
+
+; copies the full variable onto the math stack (faster)
+fac_fullvar:
+    LDS 6 CPI '&' BEQ fac_fullref           ; FULL VAR
+    LDS 4 STZ z_cnt+0 STZ z_A+0             ; set z_cnt, use z_A as byte counter
+    LDS 3 STZ z_cnt+1 STZ z_A+1
+fac_nosingle:
+    LDS 5 STZ z_type CPI 1 FEQ fac_fullchar ; set z_type
+    JPS ScaleAByType
+fac_fullchar:
+    LDS 2 STB fac_src+0 LDS 1 STB fac_src+1 ; set src data pointer
+    LDZ z_sp+0 STB fac_dst+0 LDZ z_sp+1 STB fac_dst+1  ; set dst to top of math stack
+fac_loop:
+    DEV z_A FCC fac_endfull
+    MBB @fac_src: 0xffff,@fac_dst: 0xffff
+    INW fac_src INW fac_dst FPA fac_loop
+fac_endfull:
+    LDI 0 STR fac_dst                       ; always write 0-termination into stack memory
+    LDB fac_dst+1 CPI BYTE1(endsp) FCC fac_fullrts  ; MATH MEMORY CHECK SINGLE FACTOR
+    BNE memerror
+    LDB fac_dst+0 CPI BYTE0(endsp) FCC fac_fullrts
+    BNE memerror
+fac_fullref:
+    MIZ 2,z_type                            ; FULL REFERENCE
+    MIZ 1,z_refset STZ z_cnt+0 CLZ z_cnt+1  ; set type=2, cnt=1
+    LDS 4 STZ z_refcnt+0 LDS 3 STZ z_refcnt+1  ; ->cnt to z_refcnt, z_refset=1
+    LDS 2 STT z_sp LDS 1 STT z_spi          ; put ->ptr onto math stack
+fac_fullrts:
+    LDI 6 AD.B 0xffff RTS
+
+fac_next4:
+    CPI '"' FNE fac_next5                   ; ".." STRING
+    INV z_pc MIZ 1,z_type CLV z_cnt
+    LDZ z_sp+0 STB fac_p+0 LDZ z_sp+1 STB fac_p+1
+fac_while:
+    LDT z_pc CPI '"' FEQ fac_endstr
+    STB @fac_p: 0xffff
+    INV z_pc INW fac_p INV z_cnt FPA fac_while
+fac_endstr:
+    LDI 0 STR fac_p                         ; write 0-termination byte
+    LDB fac_p+1 CPI BYTE1(endsp) FCC fac_strrts  ; MATH MEMORY CHECK SINGLE FACTOR
+    BNE memerror
+    LDB fac_p+0 CPI BYTE0(endsp) FCC fac_strrts
+    BNE memerror
+fac_strrts:
+    INV z_pc RTS                            ; consume "
+
+fac_next5:
+    CPI '1' FEQ fac_castchar
+    CPI '2' BEQ fac_castint
+    CPI '4' BNE fac_next5b
+fac_castlong:
+    INV z_pc                                ; consume cast marker
+    JPS AssertORound                        ; consume (
+    JPS Expr
+    JPS AssertCRound                        ; consume )
+    LDZ z_cnt+0 ANI 0xfe ORZ z_cnt+1        ; cast only allowed for scalar expressions
+    CPI 0 BNE fac_casttypeerr
+    JPS getL JPS putL JPS CheckLongTop
+    CLZ z_refset
+    RTS
+fac_castchar:
+    INV z_pc                                ; consume cast marker
+    JPS AssertORound                        ; consume (
+    JPS Expr
+    JPS AssertCRound                        ; consume )
+    LDZ z_cnt+0 ANI 0xfe ORZ z_cnt+1
+    CPI 0 BNE fac_casttypeerr
+    MIZ 1,z_type                            ; result type is char, low byte already at z_sp
+    LDZ z_sp+0 STB fac_p+0 LDZ z_sp+1 STB fac_p+1
+    INW fac_p LDI 0 STR fac_p               ; enforce contiguous char terminator at z_sp+1
+    CLZ z_refset
+    RTS
+fac_castint:
+    INV z_pc                                ; consume cast marker
+    JPS AssertORound                        ; consume (
+    JPS Expr
+    JPS AssertCRound                        ; consume )
+    LDZ z_cnt+0 ANI 0xfe ORZ z_cnt+1
+    CPI 0 FNE fac_casttypeerr
+    CIZ 1,z_type FNE fac_castintdone
+    LDT z_sp LL1 LDI 0 RL1 NEG STT z_spi    ; sign-extend char to int
+fac_castintdone:
+    MIZ 2,z_type
+    CLZ z_refset
+    RTS
+fac_casttypeerr:
+    LDI BYTE0(error06) PHS LDI BYTE1(error06) PHS JPA Error
+
+fac_next5b:
+    CPI 'S' FNE fac_next6                   ; FUNCTION
+    INV z_pc LDT z_pc PHS PHS INV z_pc      ; consume and push ID & container
+    JPS getCall JPS FunctionCall PLS PLS    ; ID -> getCall -> call pc -> function call
+    RTS
+
+fac_next6:
+    CPI '(' FNE fac_error                   ; (..) EXPRESSION
+    INV z_pc JPS Expr JPS AssertCRound
+    RTS
+
+fac_error:
+    LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA Error  ; error Invalid expr
+
+; -------------------------------------------------------------------
+
+
+Term:
+    JPS Factor
+term_while:
+    LDT z_pc CPI '*' FEQ term_mult
+    CPI '/' BNE term_rts
+    INV z_pc                                ; consume /
+    CIZ 4,z_type FEQ term_longdiv_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS     ; push int lhs (lo, hi)
+    JPS Factor
+    CIZ 4,z_type FEQ term_longdiv_rhs
+    JPS getB
+    LDZ z_B+0 ORZ z_B+1 CPI 0 FNE term_divokay
+    LDI BYTE0(error22) PHS LDI BYTE1(error22) PHS JPA Error  ; error divide by 0
+term_divokay:
+    PLS STZ z_A+1 PLS STZ z_A+0             ; pull A
+    JPS int_div JPA term_reuse
+term_longdiv_rhs:
+    JPS PopIntLhsHiLoToLongE
+    JPS LongDivStore
+    FPA term_while
+term_longdiv_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS Factor
+    JPS PopLongLhsSpill
+    JPS LongDivStore
+    FPA term_while
+term_mult:
+    INV z_pc                                ; consume *
+    CIZ 4,z_type BEQ term_longmul_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS     ; push int lhs (lo, hi)
+    JPS Factor
+    CIZ 4,z_type FEQ term_longmul_rhs
+    JPS getB
+    PLS STZ z_A+1 PLS STZ z_A+0             ; pull A
+    JPS int_mul
+    JPA term_reuse
+term_longmul_rhs:
+    JPS PopIntLhsHiLoToLongE
+    JPS LongMulStore
+    JPA term_while
+term_longmul_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS Factor
+    JPS PopLongLhsSpill
+    JPS LongMulStore
+    JPA term_while
+term_reuse:
+    LDZ z_A+0 STT z_sp LDZ z_A+1 STT z_spi  ; store result as int
+    CLZ z_refset MIZ 2,z_type
+    CLZ z_cnt+1 MIZ 1,z_cnt+0
+    JPA term_while
+term_rts:
+    RTS
+
+; -------------------------------------------------------------------
+
+BaseExpr:
+    LDT z_pc CPI '-' FEQ base_minus
+    JPS Term FPA base_while
+base_minus:
+    INV z_pc                                ; consume -
+    JPS Term
+    CIZ 4,z_type FNE base_minus_int
+    JPS getL
+    JPS LongNegC
+    JPS StoreLongResult
+    FPA base_while
+base_minus_int:
+    JPS get NEV z_A
+base_reuse:
+    STT z_spi LDZ z_A+0 STT z_sp            ; assumes MSB already in A
+    CLZ z_refset MIZ 2,z_type
+    CLZ z_cnt+1 MIZ 1,z_cnt+0
+base_while:
+    LDT z_pc CPI '+' FEQ base_plus
+    CPI '-' FNE base_rts
+    INV z_pc                                ; consume '-'
+    CIZ 4,z_type FEQ base_longsub_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS     ; push LSB first (standard convention)
+    JPS Term
+    CIZ 4,z_type FEQ base_longsub_rhs
+    JPS get NEV z_A
+    PLS AD.Z z_A+1 PLS ADV z_A+0            ; pop MSB first (standard convention)
+    FPA base_reuse
+base_longsub_rhs:
+    JPS PopIntLhsToLongE
+    PLS PLS                     ; remove pushed int from stack
+    JPS LongSubStore
+    FPA base_while
+base_longsub_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS Term
+    JPS PopLongLhsSpill
+    JPS LongSubStore
+    FPA base_while
+base_plus:
+    INV z_pc                                ; consume '+'
+    CIZ 4,z_type FEQ base_longadd_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS     ; push LSB first (standard convention)
+    JPS Term
+    CIZ 4,z_type FEQ base_longadd_rhs
+    JPS get
+    PLS AD.Z z_A+1 PLS ADV z_A+0            ; pop MSB first (standard convention)
+    FPA base_reuse
+base_longadd_rhs:
+    JPS PopIntLhsToLongE
+    PLS PLS                     ; remove pushed int from stack
+    JPS LongAddStore
+    FPA base_while
+base_longadd_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS Term
+    JPS PopLongLhsSpill
+    JPS LongAddStore
+    FPA base_while
+base_rts:
+    RTS
+
+; -------------------------------------------------------------------
+
+
+; handle relational operators <, ==, !=, <=, >=, >
+RelExpr:
+    JPS BaseExpr
+rele_while:
+    LDT z_pc CPI 0xd2 BCC rele_rts BNE rele_eq
+    INV z_pc
+    CIZ 4,z_type BEQ rele_lt_lhslong
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS BaseExpr
+    CIZ 4,z_type FEQ rele_lt_rhslong
+    JPS getB NEV z_B
+    PLS AD.Z z_B+1 PLS ADV z_B
+    BMI int_true
+    FPA int_false
+rele_lt_rhslong:
+    JPS PopIntLhsHiLoToLongE
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpLtResult
+rele_lt_lhslong:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS BaseExpr
+    JPS PopLongLhsSpill
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpLtResult
+int_false:
+    CLV z_A JPA rele_reuse
+int_true_pop:
+    PLS JPA int_true
+int_false_pop:
+    PLS FPA int_false
+rele_eq:
+    CPI 0xd3 FNE rele_neq
+    INV z_pc
+    CIZ 4,z_type FEQ rele_eq_lhslong
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS BaseExpr
+    CIZ 4,z_type FEQ rele_eq_rhslong
+    JPS getB
+    PLS CPZ z_B+1 FNE int_false_pop
+    PLS CPZ z_B+0 FNE int_false
+    JPA int_true
+rele_eq_rhslong:
+    JPS PopIntLhsHiLoToLongE
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpEqResult
+rele_eq_lhslong:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS BaseExpr
+    JPS PopLongLhsSpill
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpEqResult
+rele_neq:
+    CPI 0xd4 FNE rele_leq
+    INV z_pc
+    CIZ 4,z_type FEQ rele_neq_lhslong
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS BaseExpr
+    CIZ 4,z_type FEQ rele_neq_rhslong
+    JPS getB
+    PLS CPZ z_B+1 FNE int_true_pop
+    PLS CPZ z_B+0 BNE int_true
+    FPA int_false
+rele_neq_rhslong:
+    JPS PopIntLhsHiLoToLongE
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpNeResult
+rele_neq_lhslong:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS BaseExpr
+    JPS PopLongLhsSpill
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpNeResult
+rele_leq:
+    CPI 0xd5 BNE rele_geq
+    INV z_pc
+    CIZ 4,z_type BEQ rele_leq_lhslong
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS BaseExpr
+    CIZ 4,z_type FEQ rele_leq_rhslong
+    JPS getB
+    PLS SU.Z z_B+1 PLS SUV z_B
+    FPL int_true
+    JPA int_false
+rele_leq_rhslong:
+    JPS PopIntLhsHiLoToLongE
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpLeResult
+rele_leq_lhslong:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS BaseExpr
+    JPS PopLongLhsSpill
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpLeResult
+rele_geq:
+    CPI 0xd6 FNE rele_greater
+    INV z_pc
+    CIZ 4,z_type FEQ rele_geq_lhslong
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS BaseExpr
+    CIZ 4,z_type FEQ rele_geq_rhslong
+    JPS getB NEV z_B
+    PLS AD.Z z_B+1 PLS ADV z_B
+    FPL int_true
+    JPA int_false
+rele_geq_rhslong:
+    JPS PopIntLhsHiLoToLongE
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpGeResult
+rele_geq_lhslong:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS BaseExpr
+    JPS PopLongLhsSpill
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpGeResult
+rele_greater:
+    CPI 0xd7 FNE rele_rts
+    INV z_pc
+    CIZ 4,z_type FEQ rele_gt_lhslong
+    JPS get NEV z_A
+    LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS BaseExpr
+    CIZ 4,z_type FEQ rele_gt_rhslong
+    JPS getB
+    PLS AD.Z z_B+1 PLS ADV z_B
+    FMI int_true
+    JPA int_false
+rele_gt_rhslong:
+    JPS PopIntLhsHiLoToLongE
+    JPS LongNegE                            ; restore original lhs after int-only fast-path negation
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpGtResult
+rele_gt_lhslong:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS BaseExpr
+    JPS PopLongLhsSpill
+    JPS getL
+    JPS LongCompareEC
+    JPA LongCmpGtResult
+int_true:
+    LDI 0xff STZ z_A+0 STZ z_A+1
+rele_reuse:
+    LDZ z_A+0 STT z_sp LDZ z_A+1 STT z_spi  ; store result as int
+    CLZ z_refset MIZ 2,z_type
+    CLZ z_cnt+1 MIZ 1,z_cnt+0
+    JPA rele_while
+rele_rts:
+    RTS
+
+; -------------------------------------------------------------------
+
+; handle logical operators: not, and, or, xor, <<, >> (and simultaeously bitwise operators)
+Expr:
+    LDT z_pc CPI 0xd9 FEQ expr_not
+    JPS RelExpr JPA expr_while
+expr_not:
+    INV z_pc                                ; consume 'not'
+    JPS RelExpr
+    CIZ 4,z_type FNE expr_not_int
+    JPS getL
+    JPS LongNotC
+    JPS StoreLongResult
+    FPA expr_while
+expr_not_int:
+    JPS get NOV z_A
+expr_reuse:
+    LDZ z_A+0 STT z_sp LDZ z_A+1 STT z_spi  ; store result as int
+    CLZ z_refset MIZ 2,z_type
+    CLZ z_cnt+1 MIZ 1,z_cnt+0
+expr_while:
+    LDT z_pc CPI 0xda BCC expr_rts
+    FNE expr_or
+    INV z_pc
+    CIZ 4,z_type FEQ expr_longand_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS RelExpr
+    CIZ 4,z_type FEQ expr_longand_rhs
+    JPS get
+    PLS AN.Z z_A+1 PLS AN.Z z_A+0
+    FPA expr_reuse
+expr_longand_rhs:
+    JPS PopIntLhsHiLoToLongE
+    JPS LongAndStore
+    FPA expr_while
+expr_longand_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS RelExpr
+    JPS PopLongLhsSpill
+    JPS LongAndStore
+    FPA expr_while
+expr_or:
+    CPI 0xdb FNE expr_xor
+    INV z_pc
+    CIZ 4,z_type FEQ expr_longor_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS RelExpr
+    CIZ 4,z_type FEQ expr_longor_rhs
+    JPS get
+    PLS OR.Z z_A+1 PLS OR.Z z_A+0
+    FPA expr_reuse
+expr_longor_rhs:
+    JPS PopIntLhsHiLoToLongE
+    JPS LongOrStore
+    FPA expr_while
+expr_longor_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS RelExpr
+    JPS PopLongLhsSpill
+    JPS LongOrStore
+    FPA expr_while
+expr_xor:
+    CPI 0xdc FNE expr_shiftl
+    INV z_pc
+    CIZ 4,z_type FEQ expr_longxor_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS RelExpr
+    CIZ 4,z_type FEQ expr_longxor_rhs
+    JPS get
+    PLS XRZ z_A+1 STZ z_A+1
+    PLS XRZ z_A+0 STZ z_A+0
+    FPA expr_reuse
+expr_longxor_rhs:
+    JPS PopIntLhsHiLoToLongE
+    JPS LongXorStore
+    FPA expr_while
+expr_longxor_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS RelExpr
+    JPS PopLongLhsSpill
+    JPS LongXorStore
+    FPA expr_while
+expr_shiftl:
+    CPI 0xdd BNE expr_shiftr
+    INV z_pc
+    CIZ 4,z_type BEQ expr_longlsl_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS RelExpr
+    CIZ 4,z_type FEQ expr_longlsl_rhs
+    JPS getB
+    PLS STZ z_A+1 PLS STZ z_A+0
+    JPS int_lsl
+    JPA expr_reuse
+expr_longlsl_rhs:
+    JPS PopIntLhsHiLoToLongE
+    JPS getL
+    MVV z_C,z_B
+    MQQ z_E,z_C
+    JPS LongLsl
+    JPS StoreLongResult
+    JPA expr_while
+expr_longlsl_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS RelExpr
+    JPS PopLongLhsSpill
+    JPS getL
+    MVV z_C,z_B
+    MQQ z_E,z_C
+    JPS LongLsl
+    JPS StoreLongResult
+    JPA expr_while
+expr_shiftr:
+    CPI 0xde FNE expr_rts
+    INV z_pc
+    CIZ 4,z_type FEQ expr_longasr_lhs
+    JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
+    JPS RelExpr
+    CIZ 4,z_type FEQ expr_longasr_rhs
+    JPS getB
+    PLS STZ z_A+1 PLS STZ z_A+0
+    JPS int_lsr
+    JPA expr_reuse
+expr_longasr_rhs:
+    JPS PopIntLhsHiLoToLongE
+    JPS getL
+    MVV z_C,z_B
+    MQQ z_E,z_C
+    JPS LongAsr
+    JPS StoreLongResult
+    JPA expr_while
+expr_longasr_lhs:
+    JPS getL
+    JPS PushLongLhsSpill
+    JPS RelExpr
+    JPS PopLongLhsSpill
+    JPS getL
+    MVV z_C,z_B
+    MQQ z_E,z_C
+    JPS LongAsr
+    JPS StoreLongResult
+    JPA expr_while
+expr_rts:
+    RTS
+
+; -------------------------------------------------------------------
+
+
+CompExpr:
+    JPS Expr
+compwhile:
+    LDT z_pc CPI '_' BNE comp_rts           ; concatenation?
+    INV z_pc
+    LDZ z_sp+0 PHS LDZ z_sp+1 PHS           ; save expr info on CPU stack
+    LDZ z_cnt+0 PHS LDZ z_cnt+1 PHS
+    LDZ z_type PHS
+    JPS ScaleCountByType                    ; z_cnt now holds bytesize of prev expression
+    AVV z_cnt,z_sp                          ; advance math stack pointers over ex. data
+    MVV z_sp,z_spi
+    INV z_spi
+    JPS CheckZspiTop                        ; MATH MEMORY CHECK
+    JPS Expr                                ; read next expression into SP
+    PLS CPZ z_type FEQ comptypeok           ; vgl. gespeicherten z_type mit neuem z_type
+    LDI BYTE0(error06) PHS LDI BYTE1(error06) PHS JPA Error  ; type mismatch
+comptypeok:
+    PLS AD.Z z_cnt+1 PLS ADV z_cnt          ; add up to total element count
+    PLS STZ z_sp+1                          ; restore stack state
+    PLS STZ z_sp+0
+    MVV z_sp,z_spi
+    INV z_spi
+    JPA compwhile
+comp_rts:
+    RTS
+
+; -------------------------------------------------------------------
+
+; Asserts a (compound) expression of specified type (casts single element, throws error for multiple)
+; input: tcomp_type = desired type
+TypedCompExpr:
+    LDZ tcomp_type PHS                      ; preserve requested type across nested calls/TypedCompExpr
+    JPS CompExpr                            ; parses compound expression of any type
+    PLS STZ tcomp_type
+    MZZ z_type,z_flag                       ; remember source type before any widening/narrowing
+    LDZ tcomp_type CPZ z_type FEQ tcomp_rts ; matching types -> do nothing, else enforce type
+    LDZ z_cnt+0 ANI 0xfe ORZ z_cnt+1        ; conversions are scalar-only
+    CPI 0 FNE tcomperror
+    CIZ 1,tcomp_type FNE tcomp_toint        ; desired type char?
+    LDZ z_cnt+0 ANI 0xfe ORZ z_cnt+1        ; int->char conversion only for one element
+    CPI 0 FNE tcomperror
+    LDB z_flag CPI 4 FEQ tcomp_charlong
+    MVV z_sp,longptr
+    INW longptr
+    LDR longptr CPI 0 FEQ tcomp_charintdone
+    LDI BYTE0(error24) PHS LDI BYTE1(error24) PHS JPA Error
+tcomp_charlong:
+    LDT z_spi CPI 0 FNE tcomp_charovf
+    MVV z_sp,longptr
+    AIW 2,longptr
+    LDR longptr CPI 0 FNE tcomp_charovf
+    INW longptr LDR longptr CPI 0 FEQ tcomp_chardone
+tcomp_charovf:
+    LDI BYTE0(error24) PHS LDI BYTE1(error24) PHS JPA Error
+tcomp_charintdone:
+    MIZ 1,z_type
+    RTS
+tcomp_chardone:
+    LDZ z_sp+0 STB longptr+0 LDZ z_sp+1 STB longptr+1
+    INW longptr LDI 0 STR longptr
+    MIZ 1,z_type
+    RTS
+tcomp_toint:
+    CIZ 2,tcomp_type FNE tcomp_tolong       ; desired type int?
+    LDB z_flag CPI 4 FEQ tcomperror         ; implicit long -> int narrowing is not allowed
+    LDB z_flag CPI 1 FNE tcomp_rts
+    LDT z_sp LL1 LDI 0 RL1 NEG STT z_spi    ; cast char -> int in C-style w/o branching
+    MIZ 2,z_type
+    RTS
+tcomp_tolong:
+    CIZ 4,tcomp_type FNE tcomperror
+    JPS getL
+    JPS putL
+    JPS CheckLongTop
+tcomp_rts:
+    RTS
+tcomperror:
+    LDI BYTE0(error06) PHS LDI BYTE1(error06) PHS JPA Error  ; error type mismatch
+
+; --------------------------------------------------------------------------------------
+; STATEMENTS
+; --------------------------------------------------------------------------------------
+
+ReturnStmt:
+    LDT z_pc CPI 0xe0 FCS return_else
+    JPS CompExpr LDI 4 OR.Z z_halt          ; it is important to set halt *after* CompExpr()!
+    MVV z_sp,z_retsp
+    RTS
+return_else:
+    LDI 4 OR.Z z_halt CLV z_cnt             ; do not return anything after plain return statement
+    RTS
+
+CallStmt:
+    LDT z_pc CPI 0xd0 FEQ callint           ; address is TN_INT_CONST
+callerror:
+    LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA Error  ; error invalid expr
+callint:
+    INV z_pc
+    LDT z_pc STB callto+0 INV z_pc
+    LDT z_pc STB callto+1 INV z_pc
+    JPS @callto: 0xffff                     ; jump to subroutine
+    STZ 0xff                                ; store accumulator SysReg
+    RTS
+
+WhileStmt:
+    LDZ z_pc+0 PHS LDZ z_pc+1 PHS
+whileloop:
+    JPS Expr JPS ScalarTruthy
+    CPI 0 FEQ whiledone
+    JPS Block
+    CIZ 0,z_halt FNE whilehalt
+    LDS 1 STZ z_pc+1 LDS 2 STZ z_pc+0
+    FPA whileloop
+whiledone:
+    PLS PLS
+    JPS SkipStmt
+    RTS
+whilehalt:
+    PLS PLS
+    LDZ z_halt ANI 2 CPI 2 FNE whilehaltrts
+    LDZ z_mind CPZ z_tind FGT whilehaltskip
+    LDI 0xfd AN.Z z_halt                    ; z_halt &= ~BREAK;
+    RTS
+whilehaltskip:
+    JPS SkipStmt
+    LDI 0xfd AN.Z z_halt                    ; z_halt &= ~BREAK;
+whilehaltrts:
+    RTS
+
+IfStmt:
+    JPS Expr JPS ScalarTruthy PHS
+    CPI 0 FEQ if_1_else
+    JPS Block FPA if_while
+if_1_else:
+    JPS SkipStmt
+if_while:
+    LDT z_pc CPI 'F' FNE if_1_end
+    LDZ z_mind CPZ z_tind FNE if_1_end
+    INV z_pc
+    LDS 1 CPI 0 FEQ if_2_else
+    JPS SkipStmt FPA if_while
+if_2_else:
+    JPS Expr JPS ScalarTruthy STS 1
+    CPI 0 FEQ if_3_else
+    JPS Block FPA if_while
+if_3_else:
+    JPS SkipStmt FPA if_while
+if_1_end:
+    LDT z_pc CPI 'E' FNE if_2_end
+    LDZ z_mind CPZ z_tind FNE if_2_end
+    INV z_pc
+    LDS 1 CPI 0 FEQ if_4_else
+    JPS SkipStmt FPA if_2_end
+if_4_else:
+    JPS Block
+if_2_end:
+    PLS RTS
+
+PrintStmt:
+    JPS AssertORound
+printmore:
+    LDT z_pc CPI ')' BEQ printexit
+    JPS CompExpr
+    LDZ z_type CPI 1 BEQ printchars
+    CPI 4 FEQ printlongs
+    MVV z_cnt,z_B                           ; z_cnt -> z_B as counter
+    MVV z_sp,z_D                            ; z_D = print pointer
+printnext:
+    DEV z_B FCC printmore                   ; first test for zero elements
+printnext2:
+    LDT z_D STZ z_A+0 INV z_D               ; read out next int
+    LDT z_D STZ z_A+1 INV z_D
+    JPS int_tostr                           ; convert z_A to string
+    LDB strptr+0 PHS LDB strptr+1 PHS JPS _PrintPtr PLS PLS
+    DEV z_B FCC printmore
+    LDI '_' JAS _PrintChar FPA printnext2
+printlongs:
+    MVV z_cnt,z_B
+    MVV z_sp,z_D
+printlongnext:
+    DEV z_B FCC printmore
+printlongnext2:
+    LDT z_D STZ z_C+0 INV z_D
+    LDT z_D STZ z_C+1 INV z_D
+    LDT z_D STZ z_C+2 INV z_D
+    LDT z_D STZ z_C+3 INV z_D
+    JPS PrintLongZC
+    DEV z_B BCC printmore
+    LDI '_' JAS _PrintChar JPA printlongnext2
+printchars:
+    LDZ z_sp+0 PHS LDZ z_sp+1 PHS JPS _PrintPtr PLS PLS
+    JPA printmore
+printexit:
+    INV z_pc RTS                            ; consume final ')'
+
+; ------------------------------------------------------------------------------------------------
+; FUNCTIONS AND VARIABLES
+; ------------------------------------------------------------------------------------------------
+
+; push: pc_lsb, pc_msb
+; pull: #, #
+FunctionCall:
+    CIZ call_depth_max,call_depth FNE fun_depthok
+    LDI BYTE0(error26) PHS LDI BYTE1(error26) PHS JPA Error  ; error call stack overflow
+fun_depthok:
+    INZ call_depth
+    LDZ z_nextvar+0 PHS LDZ z_nextvar+1 PHS
+    LDZ z_sp+0 PHS LDZ z_sp+1 PHS
+    LDZ z_tind PHS CLZ z_tind
+    JPS AssertORound                        ; consume caller (
+    LDZ z_pc+0 PHS LDZ z_pc+1 PHS           ; store z_pc -> args
+    LDS 11 STZ z_B+0 LDS 10 STZ z_B+1       ; callee params -> z_B
+    LDZ z_fun_argpc+0 PHS LDZ z_fun_argpc+1 PHS  ; preserve caller cursors (re-entrant calls)
+    LDZ z_fun_parpc+0 PHS LDZ z_fun_parpc+1 PHS
+    MZZ z_pc+0,z_fun_argpc+0 MZZ z_pc+1,z_fun_argpc+1
+    MZZ z_B+0,z_fun_parpc+0 MZZ z_B+0,z_pc+0
+    MZZ z_B+1,z_fun_parpc+1 MZZ z_B+1,z_pc+1
+
+fun_while:
+    LDT z_pc CPI ')' BEQ fun_whileex        ; parse for callee's parameter )
+    CPI '1' FEQ fun_typeok
+    CPI '2' FEQ fun_typeok
+    CPI '4' FEQ fun_typeok
+fun_typeerr:
+    LDI BYTE0(error17) PHS LDI BYTE1(error17) PHS JPA Error  ; error Invalid parameter
+fun_typeok:
+    SUI '0' STZ z_tmp_type INV z_pc         ; park parsed type in temp, consume type
+    LDT z_pc CPI '&' BNE fun_plainvar       ; reference & variable
+    INV z_pc                                ; consume &
+    LDT z_pc CPI 'V' FNE fun_typeerr
+    INV z_pc                                ; consume V
+    LDT z_pc STT z_nextvar INV z_pc         ; consume & store ->id
+    INV z_nextvar LDZ z_sub INC STT z_nextvar  ; store ->sub
+    INV z_nextvar LDZ z_tmp_type STT z_nextvar  ; store temp type ->type
+    AIV 7,z_nextvar                         ; goto new top of vars
+    MZZ z_pc+0,z_fun_parpc+0 MZZ z_pc+1,z_fun_parpc+1  ; z_pc -> par
+    MZZ z_fun_argpc+0,z_pc+0 MZZ z_fun_argpc+1,z_pc+1  ; arg -> z_pc
+    LDT z_pc CPI 'V' FEQ fun_isvar
+    LDI BYTE0(error19) PHS LDI BYTE1(error19) PHS JPA Error  ; error invalid argument
+fun_isvar:
+    INV z_pc                                ; consume V
+    LDT z_pc PHS PHS INV z_pc JPS getVar    ; consume and push ID
+    PLS STB refptr+1 PLS STB refptr+0       ; return pointer to ref variable *type*
+    SIV 7,z_nextvar                         ; down to ->type
+    LDR refptr CPT z_nextvar BNE fun_typeerr  ; error Reference type mismatch
+    INV z_nextvar INW refptr                ; advance to ->cnt
+    LDR refptr STT z_nextvar INV z_nextvar INW refptr  ; -> cnt
+    LDR refptr STT z_nextvar INV z_nextvar INW refptr
+    LDR refptr STT z_nextvar INV z_nextvar INW refptr  ; -> ptr
+    LDR refptr STT z_nextvar INV z_nextvar INW refptr
+    LDR refptr STT z_nextvar INV z_nextvar INW refptr  ; -> max
+    LDR refptr STT z_nextvar INV z_nextvar INW refptr
+    FPA fun_whileon
+refptr:  .2byte 0xffff                      ; TODO: Consider moving to zero page or making an operand label.
+
+fun_plainvar:
+    CPI 'V' BNE fun_typeerr
+    INV z_pc                                ; consume 'V'
+    LDT z_pc STT z_nextvar INV z_pc         ; store & consume ->id
+    INV z_nextvar LDZ z_sub INC STT z_nextvar  ; store ->sub
+    INV z_nextvar LDZ z_tmp_type STT z_nextvar  ; store temp type ->type
+    AIV 7,z_nextvar                         ; goto new top of vars
+    MZZ z_pc+0,z_fun_parpc+0 MZZ z_pc+1,z_fun_parpc+1  ; z_pc -> par
+    MZZ z_fun_argpc+0,z_pc+0 MZZ z_fun_argpc+1,z_pc+1  ; arg -> z_pc
+    MZZ z_tmp_type,tcomp_type
+    JPS TypedCompExpr                       ; request with type again
+    SIV 6,z_nextvar                         ; go down to ->cnt
+    LDZ z_cnt+0 STT z_nextvar INV z_nextvar ; ->cnt
+    LDZ z_cnt+1 STT z_nextvar INV z_nextvar
+    LDZ z_sp+0 STT z_nextvar INV z_nextvar  ; ->ptr
+    LDZ z_sp+1 STT z_nextvar INV z_nextvar
+    LDZ z_cnt+0 STT z_nextvar INV z_nextvar ; ->max
+    LDZ z_cnt+1 STT z_nextvar INV z_nextvar
+    MZZ tcomp_type,z_type
+    JPS ScaleCountByType
+    AVV z_cnt,z_sp                          ; z_sp += z_cnt * z_type
+    AVV z_cnt,z_spi                         ; z_sp += z_cnt * z_type
+    JPS CheckZspiTop
+fun_whileon:
+    MZZ z_pc+0,z_fun_argpc+0 MZZ z_pc+1,z_fun_argpc+1  ; arg = z_pc
+    MZZ z_fun_parpc+0,z_pc+0 MZZ z_fun_parpc+1,z_pc+1  ; z_pc = par
+    JPA fun_while
+
+fun_whileex:
+    INV z_pc                                ; consume callee's param )
+    INZ z_sub JPS FastBlock DEZ z_sub       ; jump into callee's function block
+    MVV z_fun_argpc,z_B                     ; keep caller arg cursor
+    PLS STZ z_fun_parpc+1 PLS STZ z_fun_parpc+0
+    PLS STZ z_fun_argpc+1 PLS STZ z_fun_argpc+0  ; restore outer call cursors
+    PLS PLS                                 ; discard stacked caller-arg cursor copy
+    MVV z_B,z_pc                            ; back to caller args
+    JPS AssertCRound                        ; consume caller's ')' to reach next statement
+    PLS STZ z_tind
+    PLS STZ z_sp+1
+    PLS STZ z_sp+0
+    MVV z_sp,z_spi
+    INV z_spi
+    PLS STZ z_nextvar+1 PLS STZ z_nextvar+0
+    CIZ 0,z_halt BEQ fun_nohalt
+    LDI 0xfb AN.Z z_halt                    ; clear RETURN flag
+    LDZ z_cnt+0 ORZ z_cnt+1 CPI 0 FEQ fun_rts
+    MZB z_sp+0,fun_dst+0                    ; move return data
+    MZB z_sp+1,fun_dst+1
+    MZB z_retsp+0,fun_src+0
+    MZB z_retsp+1,fun_src+1
+    MVV z_cnt,z_A
+    JPS ScaleAByType
+fun_loop:
+    DEV z_A FCS fun_copy
+    FPA fun_rts
+fun_copy:
+    MBB @fun_src: 0xffff,@fun_dst: 0xffff
+    INW fun_src INW fun_dst FPA fun_loop
+fun_rts:
+    DEZ call_depth RTS
+fun_nohalt:
+    CLV z_cnt DEZ call_depth RTS            ; no 'return' happened
+
+DefStmt:
+    LDT z_pc CPI 'S' FNE deferror
+    CIZ 0,z_sub FNE deferror
+    CIZ 0,z_mind FNE deferror
+    INV z_pc                                ; consume TN_CALL
+    LDT z_pc STT z_nextcall INV z_pc INV z_nextcall  ; consume and store call ID
+    JPS AssertORound                        ; consume (
+    LDZ z_pc+0 STT z_nextcall INV z_nextcall  ; store PC of call
+    LDZ z_pc+1 STT z_nextcall INV z_nextcall
+    JPS SkipStmt
+    RTS
+deferror:
+    LDI BYTE0(error16) PHS LDI BYTE1(error16) PHS JPA Error  ; error invalid definition
+
+; push: (vp->type)_lsb, (vp->type)_msb
+; pull: #, #
+VarAssignment:
+    LDT z_pc CPI '[' FEQ ass_element
+    LDI 0xff PHS PHS FPA ass_operator       ; push no-offset marker and goto operator
+ass_element:
+    INV z_pc                                ; consume [
+    JPS Expr JPS get JPS AssertCSquare      ; parse offset ]
+    LDZ z_A+0 PHS LDZ z_A+1 PHS             ; push offset
+ass_operator:
+    LDT z_pc CPI '=' BNE ass_fastaddsub
+    INV z_pc                                ; consume =
+    LDS 6 STZ assptr+0 LDS 5 STZ assptr+1   ; vp->type
+    LDT assptr STZ tcomp_type               ; request typed comp-expr (now z_type = vp->type)
+    JPS TypedCompExpr
+    PLS CPI 0xff BEQ ass_nooffset           ; pull and test offset MSB
+    STB ass_dst+1 STZ z_A+1                 ; offset -> ass_dst, z_A
+    PLS STB ass_dst+0 STZ z_A+0
+    AVV z_cnt,z_A                           ; RANGE SAFETY-CHECK 1: z_A = z_cnt + offset
+    CIZ 1,z_type FEQ ass_typedone
+    LDB ass_dst+0 STZ z_B+0 LDB ass_dst+1 STZ z_B+1
+    JPS ScaleCountByType
+    JPS ScaleBByType
+    LDZ z_B+0 STB ass_dst+0
+    LDZ z_B+1 STB ass_dst+1
+ass_typedone:
+    LDS 4 STZ assptr+0 LDS 3 STZ assptr+1   ; goto vp->type
+    AIV 3,assptr LDT assptr ADW ass_dst     ; ass_dst = vp->ptr + offset * vp->type
+    INV assptr LDT assptr AD.B ass_dst+1
+    INV assptr LDT assptr STZ z_B+0         ; RANGE SAFETY-CHECK 2: z_B = ->max
+    INV assptr LDT assptr STZ z_B+1
+    LDZ z_A+1 SU.Z z_B+1 BCC ass_indexerr   ; ->max - (z_cnt + offset) >= 0 ? -> okay!
+    LDZ z_A+0 SUV z_B FCC ass_indexerr
+    FPA ass_copy
+ass_indexerr:
+    LDI BYTE0(error14) PHS LDI BYTE1(error14) PHS  ; error Invalid index
+    JPA Error
+ass_nooffset:
+    PLS                                     ; discard no-offset LSB
+    LDS 4 STZ assptr+0 LDS 3 STZ assptr+1   ; goto vp->type
+    INV assptr LDZ z_cnt+0 STT assptr       ; z_cnt -> vp->cnt
+    INV assptr LDZ z_cnt+1 STT assptr
+    INV assptr LDT assptr STB ass_dst+0     ; ->ptr
+    INV assptr LDT assptr STB ass_dst+1
+    INV assptr LDT assptr STZ z_A+0         ; ->max into z_A for RANGE SAFETY-CHECK WHOLE
+    INV assptr LDT assptr STZ z_A+1
+    LDZ z_cnt+1 SU.Z z_A+1 FCC ass_idxwhole_err  ; ->max - z_cnt >= 0 means okay
+    LDZ z_cnt+0 SUV z_A FCC ass_idxwhole_err
+    JPS ScaleCountByType                    ; reuse z_cnt as byte counter
+    FPA ass_copy
+ass_idxwhole_err:
+    FPA ass_indexerr
+ass_copy:
+    MZB z_sp+0,ass_src+0                    ; from z_sp to vp->ptr [+ offset * vp->type]
+    MZB z_sp+1,ass_src+1
+ass_loop:
+    DEW   z_cnt FCC ass_rts                 ; reuses z_cnt as byte counter
+    MBB @ass_src: 0xffff,@ass_dst: 0xffff
+    INW ass_src INW ass_dst FPA ass_loop
+ass_rts:
+    RTS
+
+ass_fastaddsub:
+    STZ z_tmp_fastop INV z_pc               ; store fast op, consume += / -= token
+    LDT z_pc CPI '+' FEQ ass_fastconstsign
+    CPI '-' FNE ass_fastconst
+    INV z_pc                                ; consume unary minus on constant rhs
+    CIZ 'a',z_tmp_fastop FNE ass_fastnegsub
+    MIZ 's',z_tmp_fastop                    ; += -k  =>  -= k
+    FPA ass_fastconst
+ass_fastnegsub:
+    CIZ 's',z_tmp_fastop BNE ass_error
+    MIZ 'a',z_tmp_fastop                    ; -= -k  =>  += k
+ass_fastconstsign:
+    INV z_pc                                ; consume unary plus on constant rhs
+ass_fastconst:
+    LDT z_pc CPI 0xd0 BNE ass_error         ; TN_INT_CONST only
+    INV z_pc
+    LDS 6 STZ assptr+0 LDS 5 STZ assptr+1   ; vp->type
+    LDT assptr STZ z_tmp_type
+    CPZ z_tmp_type CPI 4 BEQ ass_error
+    PLS CPI 0xff FEQ ass_nooffa
+    STZ z_A+1 PLS STZ z_A+0                 ; z_A = offset
+    LDI 1 CPZ z_tmp_type FEQ ass_achar
+    LLV z_A                                 ; offset x 2 = byte offset
+ass_achar:
+    AIV 3,assptr                            ; goto ->ptr
+    LDT assptr ADV z_A INV assptr           ; z_A = ->ptr + offset * ->type
+    LDT assptr AD.Z z_A+1 FPA ass_offaset
+ass_nooffa:
+    PLS                                     ; pull LSB rest of null-offset
+    INV assptr                              ; goto ->cnt
+    LDI 1 STT assptr INV assptr             ; ->cnt = 1
+    LDI 0 STT assptr INV assptr
+    LDT assptr STZ z_A+0 INV assptr         ; z_A = ->ptr
+    LDT assptr STZ z_A+1
+ass_offaset:
+    LDI 1 CPZ z_tmp_type BEQ ass_aachar
+    LDT z_A STZ z_B+0 INV z_A
+    LDT z_A STZ z_B+1
+    CIZ 'a',z_tmp_fastop BNE ass_fsubint
+    LDT z_pc ADV z_B INV z_pc               ; add fast int
+    LDT z_pc AD.Z z_B+1 STT z_A INV z_pc
+    DEV z_A LDZ z_B+0 STT z_A RTS
+ass_fsubint:
+    CIZ 's',z_tmp_fastop FNE ass_error
+    LDT z_pc SUV z_B INV z_pc               ; sub fast int
+    LDT z_pc SU.Z z_B+1 STT z_A INV z_pc
+    DEV z_A LDZ z_B+0 STT z_A RTS
+ass_aachar:
+    CIZ 'a',z_tmp_fastop FNE ass_fsubchar
+    LDT z_A ADT z_pc STT z_A                ; add fast char
+    AIV 2,z_pc RTS
+ass_fsubchar:
+    CIZ 's',z_tmp_fastop FNE ass_error
+    LDT z_A SUT z_pc STT z_A                ; sub fast char
+    AIV 2,z_pc RTS
+ass_error:
+    LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA Error  ; error Invalid assign
+; 'type' token was just consumed, now expect a TN_VAR and it's identifier
+; push: type (1 or 2)
+; pull: #
+VarDefinition:
+    LDT z_pc CPI 'V' FEQ var_okay
+    LDI BYTE0(error01) PHS LDI BYTE1(error01) PHS JPA Error  ; error Expecting an identifier
+var_okay:
+    INV z_pc LDT z_pc STT z_nextvar         ; consume 'V', read & store id
+    INV z_pc INV z_nextvar                  ; move to ->sub
+    LDZ z_sub ORZ z_mind DEC FCC var_writesub
+    LDZ z_sub
+var_writesub:
+    STT z_nextvar INV z_nextvar             ; move to ->type
+    JPS VarCheckDuplicate
+    LDS 3 STT z_nextvar                     ; write sub (0xff for global) and type
+
+    LDT z_pc CPI '@' BNE var_localvar
+    INV z_pc AIV 7,z_nextvar                ; protect the new var entry
+    JPS Expr
+    CIZ 2,z_type FEQ var_typok
+    LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA Error  ; error Expecting an int address
+var_typok:
+    JPS get SIV 4,z_nextvar
+    LDZ z_A+0 STT z_nextvar INV z_nextvar   ; vp->ptr
+    LDZ z_A+1 STT z_nextvar INV z_nextvar
+    LDI 0xff STT z_nextvar INV z_nextvar    ; vp->max
+    LDI 0xff STT z_nextvar INV z_nextvar
+    LDT z_pc CPI '='
+    CPI '=' FEQ .var_absinit
+    JPA var_abselse
+.var_absinit:
+    INV z_pc
+    SIV 7,z_nextvar
+    LDT z_nextvar STZ tcomp_type
+    AIV 7,z_nextvar
+    JPS TypedCompExpr
+    SIV 6,z_nextvar
+    LDZ z_cnt+0 STT z_nextvar INV z_nextvar
+    LDZ z_cnt+1 STT z_nextvar INV z_nextvar
+    LDT z_nextvar STB var_dst+0 INV z_nextvar
+    LDT z_nextvar STB var_dst+1 AIV 3,z_nextvar
+    LDZ z_sp+0 STB var_src+0 LDZ z_sp+1 STB var_src+1
+    MZZ tcomp_type,z_type
+    JPS ScaleCountByType
+var_loop:
+    DEV z_cnt FCC var_absexit
+    MBB @var_src: 0xffff,@var_dst: 0xffff
+    INW var_src INW var_dst FPA var_loop
+var_absexit:
+    RTS
+
+var_abselse:
+    SIV 6,z_nextvar
+    CIZ 1,z_refset FEQ var_refset
+    LDI 1 STT z_nextvar INV z_nextvar
+    LDI 0 STT z_nextvar AIV 5,z_nextvar
+    RTS
+var_refset:
+    LDZ z_refcnt+0 STT z_nextvar INV z_nextvar
+    LDZ z_refcnt+1 STT z_nextvar AIV 5,z_nextvar
+    RTS
+
+var_localvar:
+    AIV 3,z_nextvar                         ; move to ->ptr
+    LDZ z_sp+0 STT z_nextvar INV z_nextvar  ; write z_sp ->ptr
+    LDZ z_sp+1 STT z_nextvar INV z_nextvar  ; points to v->max
+    LDT z_pc CPI '=' FEQ var_localinit
+    FPA var_locelse
+var_localinit:
+    INV z_pc                                ; consume =
+    LDI 0xff STT z_nextvar INV z_nextvar    ; vp->max = 0xffff
+    LDI 0xff STT z_nextvar INV z_nextvar
+    SIV 7,z_nextvar
+    LDT z_nextvar STZ tcomp_type
+    AIV 7,z_nextvar
+    JPS TypedCompExpr
+    SIV 6,z_nextvar
+    LDZ z_cnt+0 STT z_nextvar INV z_nextvar ; ->cnt = z_cnt
+    LDZ z_cnt+1 STT z_nextvar AIV 3,z_nextvar  ; move to ->max
+    LDZ z_cnt+0 STT z_nextvar INV z_nextvar ; ->max = z_cnt
+    LDZ z_cnt+1 STT z_nextvar INV z_nextvar
+    JPS ScaleCountByType                    ; z_cnt now is z_cnt * z_type
+    AVV z_cnt,z_sp
+    AVV z_cnt,z_spi
+    JPS CheckZspiTop
+    RTS
+
+var_locelse:
+    SIV 4,z_nextvar                         ; move to ->cnt
+    LDI 1 STT z_nextvar INV z_nextvar       ; vp->cnt = 1
+    LDI 0 STT z_nextvar AIV 3,z_nextvar     ; move to ->max
+    LDI 1 STT z_nextvar INV z_nextvar       ; vp->max = 1
+    LDI 0 STT z_nextvar INV z_nextvar
+    LDS 3 ADV z_sp
+    LDS 3 ADV z_spi
+    JPS CheckZspiTop
+    RTS
+
+; z_nextvar points to new entry ->type, with fresh id/sub already written at (-2,-1)
+; reject duplicates in the same sub-scope (global=0xff or same function sub id)
+VarCheckDuplicate:
+    MBB z_nextvar+0,vardup_new+0
+    MBB z_nextvar+1,vardup_new+1
+    SIW 2,vardup_new                        ; -> new id
+    MBB vardup_new+0,vardup_end+0
+    MBB vardup_new+1,vardup_end+1           ; end sentinel (exclude pending entry)
+    MIZ BYTE0(firstvar),getptr+0
+    MIZ BYTE1(firstvar),getptr+1
+.loop:
+    LDZ getptr+1 CPB vardup_end+1 FCC .cmp
+    BNE .ok
+    LDZ getptr+0 CPB vardup_end+0 FCC .cmp
+    JPA .ok
+.cmp:
+    LDT getptr STZ z_A+0                    ; compare id
+    LDR vardup_new CPZ z_A+0 BNE .next
+    INV getptr INW vardup_new               ; compare sub
+    LDT getptr CPR vardup_new FNE .restore
+    LDI BYTE0(error25) PHS LDI BYTE1(error25) PHS JPA Error
+.restore:
+    SIV 1,getptr SIW 1,vardup_new
+.next:
+    AIV 9,getptr
+    JPA .loop
+.ok:
+    RTS
+vardup_new: .2byte 0xffff                   ; TODO: Consider moving to zero page or making operand label
+vardup_end: .2byte 0xffff                   ; TODO: Consider moving to zero page
+
+; --------------------------------------------------------------------------------------
+; LANGUAGE STRUCTURE
+; --------------------------------------------------------------------------------------
+
+
+
+Statement:
+    LDZ z_mind CPZ z_tind FEQ stmtnormal
+    FMI stmtblockend
+    LDI BYTE0(error11) PHS LDI BYTE1(error11) PHS JPA Error  ; error unexpected indent
+stmtnormal:
+    LDT z_pc CPI 'I' FNE stmtnext1
+    INV z_pc JPS IfStmt RTS
+stmtnext1:
+    CPI 'W' FNE stmtnext2
+    INV z_pc JPS WhileStmt RTS
+stmtnext2:
+    CPI 'D' FNE stmtsimple
+    INV z_pc JPS DefStmt RTS
+stmtsimple:
+    JPS SimpleLine
+    RTS
+stmtblockend:
+    LDI 1 OR.Z z_halt                       ; set BLOCKEND bit 0
+    RTS
+
+; -------------------------------------------------------------------
+
+Block:
+    LDZ z_nextvar+0 PHS LDZ z_nextvar+1 PHS ; save variable and stack state
+    LDZ z_sp+0 PHS LDZ z_sp+1 PHS
+    LDT z_pc CPI 0xe0 FCC blocksimple       ; is there an indent? => hanging block
+    NOT DEC STZ z_mind INV z_pc             ; consume indentation mark
+    INZ z_tind                              ; indentation +1
+blockwhile:
+    JPS Statement CIZ 0,z_halt FEQ blockwhile
+    DEZ z_tind FPA blockend                 ; indentation -1
+blocksimple:
+    JPS SimpleLine
+blockend:
+    LDI 0xfe AN.Z z_halt                    ; clear BLOCKEND flag (bit 0)
+    PLS STZ z_sp+1                          ; restore variable and stack state
+    PLS STZ z_sp+0
+    MVV z_sp,z_spi
+    INV z_spi
+    PLS STZ z_nextvar+1 PLS STZ z_nextvar+0 ; (forget blocks's local variables)
+    RTS
+
+; -------------------------------------------------------------------
+
+; push: character
+; pull: #
+SimpleLine:
+    LDT z_pc
+    CPI 'V' FNE linenext1
+    INV z_pc LDT z_pc PHS PHS INV z_pc JPS getVar
+    JPS VarAssignment PLS PLS JPA linecont
+linenext1:
+    CPI 'B' FNE linenext2
+    INV z_pc LDI 2 OR.Z z_halt JPA linecont ; BreakStmt: z_halt |= BREAK
+linenext2:
+    CPI 'S' FNE linenext3
+    INV z_pc LDT z_pc PHS PHS INV z_pc JPS getCall
+    JPS FunctionCall PLS PLS JPA linecont
+linenext3:
+    CPI 'R' FNE linenext4
+    INV z_pc JPS ReturnStmt JPA linecont
+linenext4:
+    CPI '1' FNE linenext5
+    INV z_pc LDI 1 PHS JPS VarDefinition PLS JPA linecont
+linenext5:
+    CPI '2' BNE linenext6
+    INV z_pc LDI 2 PHS JPS VarDefinition PLS FPA linecont
+linenext6:
+    CPI '4' FNE linenext6b
+    INV z_pc LDI 4 PHS JPS VarDefinition PLS FPA linecont
+linenext6b:
+    CPI 'C' FNE linenext7
+    INV z_pc JPS CallStmt FPA linecont
+linenext7:
+    CPI 'P' FNE linenext8
+    INV z_pc JPS PrintStmt FPA linecont
+linenext8:
+    LDI BYTE0(error02) PHS LDI BYTE1(error02) PHS JPA Error  ; error invalid simple stmt
+linecont:
+    LDT z_pc CPI 0xe0 FCS lineindent        ; end of the line (indent) reached?
+    CIZ 0,z_halt BEQ SimpleLine             ; any halt flag set?
+    RTS
+lineindent:
+    NOT DEC STZ z_mind INV z_pc RTS
+
+; -------------------------------------------------------------------
+
+; function block does not need an additional push/pull of variables and math stack
+FastBlock:
+    LDT z_pc CPI 0xe0 FCC fblocksimple      ; is there an indent? => hanging block
+    NOT DEC STZ z_mind INV z_pc             ; consume indentation mark
+    INZ z_tind                              ; indentation +1
+fblockwhile:
+    JPS Statement CIZ 0,z_halt FEQ fblockwhile
+    DEZ z_tind                              ; indentation -1
+    LDI 0xfe AN.Z z_halt                    ; clear BLOCKEND flag (bit 0)
+    RTS
+fblocksimple:
+    JPS SimpleLine
+    LDI 0xfe AN.Z z_halt                    ; clear BLOCKEND flag (bit 0)
+    RTS
+
+; --------------------------------------------------------------------------------------
+; TOKENIZER CONSTANT SUPPORT (STEP 2/3: NUMERIC + STRING CONSTANTS)
+; --------------------------------------------------------------------------------------
+
+ConstInit:
+    MIB BYTE0(consttab),const_next+0
+    MIB BYTE1(consttab),const_next+1
+    MIW conststrtab,consts_next
+    CLB const_local_active CLB const_wait_fun
+    RTS
+
+; prelude run at start of each non-empty line
+; return A=1 if const declaration consumed the line, A=0 otherwise
+ConstLinePrelude:
+    JPS ConstScopeState
+    JPS TryConstDecl CPI 1 FEQ .true
+    JPS ConstTrackDefLine
+    LDI 0 RTS
+.true:
+    LDI 1 RTS
+
+; maintains function-local constant scope by indentation
+ConstScopeState:
+    LDB const_local_active CPI 0 FEQ .wait
+    LDB ind CPB const_fun_indent FCC .wait
+    MBB const_local_base+0,const_next+0
+    MBB const_local_base+1,const_next+1
+    MBB consts_local_base+0,consts_next+0
+    MBB consts_local_base+1,consts_next+1
+    CLB const_local_active
+.wait:
+    CIZ 0,const_wait_fun FEQ .exit
+    LDB ind CPB const_fun_indent FCC .enter
+    CLB const_wait_fun
+    RTS
+.enter:
+    CLB const_wait_fun
+    MBB const_next+0,const_local_base+0
+    MBB const_next+1,const_local_base+1
+    MBB consts_next+0,consts_local_base+0
+    MBB consts_next+1,consts_local_base+1
+    MIB 1,const_local_active
+.exit:
+    RTS
+
+; remembers a just-seen def-line so local constants can start in the body
+ConstTrackDefLine:
+    MZB z_pc+0,const_linepc+0
+    MZB z_pc+1,const_linepc+1
+    JPS TakeAlNum
+    CPI 3 BNE .restore
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    LDR const_src CPI 'd' FNE .restore
+    INW const_src
+    LDR const_src CPI 'e' FNE .restore
+    INW const_src
+    LDR const_src CPI 'f' FNE .restore
+    MIB 1,const_wait_fun
+    MBB ind,const_fun_indent
+.restore:
+    MWV const_linepc,z_pc
+    RTS
+
+; classify the identifier currently stored in itnext
+; input:  A = identifier length from TakeAlNum
+; output: A = 0 no match, 1 char, 2 int, 3 string, 4 long
+ConstClassifyTypeName:
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    MIB BYTE0(const_type_items),const_scan+0
+    MIB BYTE1(const_type_items),const_scan+1
+.loop:
+    CIB BYTE1(const_type_items_end),const_scan+1 FCC .cmp
+    FNE .nomatch
+    CIB BYTE0(const_type_items_end),const_scan+0 FCC .cmp
+    FPA .nomatch
+.cmp:
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    MBB const_scan+0,const_tmp+0
+    MBB const_scan+1,const_tmp+1
+.cmploop:
+    LDR const_src
+    CPR const_tmp FNE .next
+    CPI 0 FEQ .hit
+    INW const_src
+    INW const_tmp
+    FPA .cmploop
+.next:
+    AIW 15,const_scan
+    FPA .loop
+.hit:
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    MBB const_scan+0,const_tmp+0
+    MBB const_scan+1,const_tmp+1
+    AIW 14,const_tmp
+    LDR const_tmp RTS
+.nomatch:
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    LDI 0 RTS
+
+; parses and stores:
+;   int Name := <numeric-literal|numeric-const-name|char(<numeric-rhs>)>
+;   long Name := <numeric-literal|numeric-const-name|char(<numeric-rhs>)|int(<numeric-rhs>)|long(<numeric-rhs>)>
+;   char Name := <numeric-rhs|string-literal|string-const-name>
+;   string Name := <string-literal|string-const-name>
+; return A=1 if declaration consumed, A=0 if not a const declaration
+TryConstDecl:
+    MZB z_pc+0,const_savepc+0
+    MZB z_pc+1,const_savepc+1
+    JPS TakeAlNum
+    JAS ConstClassifyTypeName
+    CPI 0 BEQ .failrestore
+    STB const_decl_type
+.typeok:
+    JPS Next
+    JPS TakeAlNum CPI 0 BEQ .bad
+    CPI 14 FCC .nameok
+    LDI BYTE0(error01) PHS LDI BYTE1(error01) PHS JPA SourceError
+.nameok:
+    JPS ConstCopyName
+.sepws1:
+    LDT z_pc CPI ' ' FEQ .sepws1take
+    CPI 9 FEQ .sepws1take
+    CPI 13 FEQ .sepws1take
+    FPA .sepc1
+.sepws1take:
+    INV z_pc FPA .sepws1
+.sepc1:
+    CPI ':' BNE .failrestore
+    INV z_pc
+.sepws2:
+    LDT z_pc CPI ' ' BEQ .sepws2take
+    CPI 9 BEQ .sepws2take
+    CPI 13 BEQ .sepws2take
+    JPA .sepc2
+.sepws2take:
+    INV z_pc JPA .sepws2
+.sepc2:
+    CPI '=' FNE .bad
+    INV z_pc
+    LDB const_decl_type CPI 3 FEQ .string_rhs
+    CPI 1 FNE .int_rhs
+.char_rhs:
+    JPS ConstParseNumericRhs CPI 1 FEQ .char_num
+    JPS ConstParseStringRhs CPI 1 FNE .bad
+    FPA .tail
+.char_num:
+    CLB const_rhs_type
+    LDB const_num_type CPI 4 FEQ .overflow
+    LDB const_data+1 CPI 0 FEQ .tail
+    FPA .overflow
+.int_rhs:
+    JPS ConstParseNumericRhs CPI 1 FNE .bad
+    CLB const_rhs_type
+    LDB const_decl_type CPI 4 FNE .int_check
+    MIB 4,const_num_type
+    FPA .tail
+.int_check:
+    LDB const_num_type CPI 4 FEQ .overflow
+    FPA .tail
+.string_rhs:
+    JPS ConstParseStringRhs CPI 1 FNE .bad
+.tail:
+    JPS Next
+    CPI ';' FNE .tail2
+    INV z_pc JPS Next
+.tail2:
+    CPI 10 FEQ .store
+    CPI 0 FNE .bad
+.store:
+    LDB const_rhs_type CPI 0 FEQ .storenum
+    JPS ConstAddStringEntry
+    LDI 1 RTS
+.storenum:
+    JPS ConstAddEntry
+    LDI 1 RTS
+.bad:
+    LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA SourceError
+.overflow:
+    LDI BYTE0(error24) PHS LDI BYTE1(error24) PHS JPA SourceError
+.failrestore:
+    MWV const_savepc,z_pc
+    LDI 0 RTS
+
+; parse numeric rhs into const_data
+; accepts decimal/hex literal, previously defined numeric constant name,
+; or explicit cast: char(<numeric-rhs>), int(<numeric-rhs>), long(<numeric-rhs>)
+ConstParseNumericRhs:
+    LDZ z_pc+0 PHS LDZ z_pc+1 PHS
+    JPS Next
+    CPI '0' FCC .name
+    CPI '9' BLE .lit
+.name:
+    JPS TakeAlNum CPI 0 BEQ .failrestore
+    CPI 14 BCS .failrestore
+    JAS ConstClassifyTypeName
+    CPI 1 FNE .lookupint
+    JPS Next
+    CPI '(' BNE .failrestore
+    INV z_pc                                 ; consume (
+    JPS ConstParseNumericRhs CPI 1 BNE .failrestore
+    JPS Next
+    CPI ')' BNE .failrestore
+    INV z_pc                                 ; consume )
+    CLB const_data+1 CLB const_data+2 CLB const_data+3
+    MIB 2,const_num_type                     ; explicit narrowing cast: keep low byte
+    JPA .success
+.lookupint:
+    CPI 2 BNE .lookuplong
+    JPS Next
+    CPI '(' BNE .failrestore
+    INV z_pc
+    JPS ConstParseNumericRhs CPI 1 FNE .failrestore
+    JPS Next
+    CPI ')' FNE .failrestore
+    INV z_pc
+    MIB 2,const_num_type
+    CLB const_data+2 CLB const_data+3
+    FPA .success
+.lookuplong:
+    CPI 4 FNE .lookup
+    JPS Next
+    CPI '(' FNE .failrestore
+    INV z_pc
+    JPS ConstParseNumericRhs CPI 1 FNE .failrestore
+    JPS Next
+    CPI ')' FNE .failrestore
+    INV z_pc
+    MIB 4,const_num_type
+    FPA .success
+.lookup:
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    MIB BYTE0(consttab),const_start+0
+    MIB BYTE1(consttab),const_start+1
+    JPS ConstLookupNumeric CPI 1 FEQ .success
+    FPA .failrestore
+.lit:
+    JPS ConstParseNumber CPI 1 FEQ .success
+.failrestore:
+    PLS STZ z_pc+1 PLS STZ z_pc+0
+    LDI 0 RTS
+.success:
+    PLS PLS
+    LDI 1 RTS
+
+; parse string rhs into const_text_ptr/const_text_len
+; accepts string literal or previously defined string constant name
+; sets const_rhs_type:
+;   1 = literal source string
+;   2 = string alias / copied token blob
+ConstParseStringRhs:
+    LDZ z_pc+0 PHS LDZ z_pc+1 PHS
+    JPS Next
+    CPI '"' FEQ .literal
+    JPS TakeAlNum CPI 0 FEQ .failrestore
+    CPI 14 FCS .failrestore
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    MIB BYTE0(conststrtab),const_start+0
+    MIB BYTE1(conststrtab),const_start+1
+    JPS ConstLookupString CPI 1 FEQ .alias
+    FPA .failrestore
+.literal:
+    MZB z_pc+0,const_text_ptr+0
+    MZB z_pc+1,const_text_ptr+1
+    MIW 0x0001,const_text_len
+    INV z_pc
+.litloop:
+    LDT z_pc CPI '"' FEQ .litclose
+    CPI 0 FEQ .litbail
+    CPI 10 FEQ .litbail
+    JPS TakeOrd
+    INW const_text_len
+    FPA .litloop
+.litclose:
+    INV z_pc
+.litbail:
+    INW const_text_len
+    MIB 1,const_rhs_type
+    PLS PLS
+    LDI 1 RTS
+.alias:
+    MIB 2,const_rhs_type
+    PLS PLS
+    LDI 1 RTS
+.failrestore:
+    PLS STZ z_pc+1 PLS STZ z_pc+0
+    LDI 0 RTS
+
+; parse decimal or 0x hex integer literal into const_data
+ConstParseNumber:
+    JPS ParseHexLiteral
+    CPI 2 BEQ .overflow
+    CPI 1 BEQ .hexdone
+    JPS ParseDecimalLiteral32
+    CPI 2 BEQ .overflow
+    CPI 1 FNE .numfail
+.hexdone:
+    LDB const_decl_type CPI 4 FEQ .longok
+    LDZ z_C+2 ORZ z_C+3 CPI 0 FNE .overflow
+    MIB 2,const_num_type
+    FPA .store
+.longok:
+    MIB 4,const_num_type
+.store:
+    LDZ z_C+0 STB const_data+0
+    LDZ z_C+1 STB const_data+1
+    LDZ z_C+2 STB const_data+2
+    LDZ z_C+3 STB const_data+3
+    LDI 1 RTS
+.overflow:
+    LDI BYTE0(error24) PHS LDI BYTE1(error24) PHS JPA SourceError
+.numfail:
+    LDI 0 RTS
+
+; Parse decimal literal at z_pc into z_C.
+; success:   A=1, z_pc advanced, z_C contains 32-bit value
+; not dec:   A=0, z_pc unchanged
+; overflow:  A=2, z_pc advanced through consumed digits, z_C undefined
+ParseDecimalLiteral32:
+    LDT z_pc CPI '0'
+    CPI '0' FCC .not_dec
+    CPI '9' FGT .not_dec
+    CLQ z_C
+.loop:
+    MQQ z_C,z_E
+    LLQ z_E
+    LLQ z_C
+    LLQ z_C
+    LLQ z_C
+    AQQ z_E,z_C FCS .overflow
+    LDT z_pc SUI '0' PHS
+    PLS AD.Z z_C+0
+    LDI 0 AC.Z z_C+1
+    LDI 0 AC.Z z_C+2
+    LDI 0 AC.Z z_C+3 FCS .overflow
+    INV z_pc
+    LDT z_pc CPI '0' FCC .done
+    CPI '9' FLE .loop
+.done:
+    LDI 1 RTS
+.overflow:
+    LDI 2 RTS
+.not_dec:
+    LDI 0 RTS
+
+; Parse lowercase-prefix hex literal at z_pc into z_C.
+; success:   A=1, z_pc advanced, z_C contains 32-bit value
+; not hex:   A=0, z_pc unchanged
+; overflow:  A=2, z_pc advanced through consumed digits, z_C undefined
+; accepted syntax:
+;   - bare 0x is valid and yields zero
+;   - prefix must be lowercase 0x
+;   - digits may be 0-9, a-f, or A-F
+ParseHexLiteral:
+    LDT z_pc CPI '0' BNE .not_hex
+    INV z_pc
+    LDT z_pc CPI 'x' FEQ .prefix_ok
+    CPI 'X' BEQ .bad_prefix
+    DEV z_pc
+    LDI 0 RTS
+.prefix_ok:
+    INV z_pc
+    CLQ z_C
+.loop:
+    LDT z_pc
+    CPI '9' FGT .maybe_upper
+    CPI '0' FCS .digit
+    JPA .done
+.maybe_upper:
+    CPI 'F' FGT .maybe_lower
+    CPI 'A' FCS .upper
+    JPA .done
+.maybe_lower:
+    CPI 'f' BGT .done
+    CPI 'a' FCS .lower
+    JPA .done
+.digit:
+    SUI '0'
+    FPA .accum
+.upper:
+    SUI 55                                  ; 'A'..'F' -> 10..15
+    FPA .accum
+.lower:
+    SUI 87                                  ; 'a'..'f' -> 10..15
+.accum:
+    PHS
+    LLQ z_C BCS .overflow_pop
+    LLQ z_C BCS .overflow_pop
+    LLQ z_C BCS .overflow_pop
+    LLQ z_C BCS .overflow_pop
+    PLS AD.Z z_C+0
+    LDI 0 AC.Z z_C+1
+    LDI 0 AC.Z z_C+2
+    LDI 0 AC.Z z_C+3 FCS .overflow
+    INV z_pc JPA .loop
+.done:
+    LDI 1 RTS
+.overflow_pop:
+    PLS
+.overflow:
+    LDI 2 RTS
+.bad_prefix:
+    LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA SourceError
+.not_hex:
+    LDI 0 RTS
+
+; copy identifier currently in itnext to const_name
+ConstCopyName:
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    MIB BYTE0(const_name),const_dst+0
+    MIB BYTE1(const_name),const_dst+1
+    MIZ 14,z_count
+.loop:
+    LDR const_src STR const_dst INW const_src INW const_dst
+    DEZ z_count FNE .loop
+    RTS
+
+; returns A=1 if const_name already exists in the current constant scope
+ConstNameExists:
+    MIB BYTE0(const_name),const_src+0
+    MIB BYTE1(const_name),const_src+1
+    MIB BYTE0(consttab),const_start+0
+    MIB BYTE1(consttab),const_start+1
+    LDB const_local_active CPI 0 FEQ .chknum
+    MBB const_local_base+0,const_start+0
+    MBB const_local_base+1,const_start+1
+.chknum:
+    JPS ConstLookupNumeric CPI 1 FEQ .hit
+    MIB BYTE0(conststrtab),const_start+0
+    MIB BYTE1(conststrtab),const_start+1
+    LDB const_local_active CPI 0 FEQ .chkstr
+    MBB consts_local_base+0,const_start+0
+    MBB consts_local_base+1,const_start+1
+.chkstr:
+    JPS ConstLookupString CPI 1 FEQ .hit
+    LDI 0 RTS
+.hit:
+    LDI 1 RTS
+
+; add constant name at const_name with value in const_data into table
+ConstAddEntry:
+    JPS ConstNameExists CPI 1 FEQ .redef
+.nodup:
+    MBB const_next+0,const_tmp+0
+    MBB const_next+1,const_tmp+1
+    AIW const_entry_size,const_tmp
+    LDB const_tmp+1 CPI BYTE1(consttab_end) FCC .store
+    FNE .full
+    LDB const_tmp+0 CPI BYTE0(consttab_end) FCC .store
+.full:
+    LDI BYTE0(error07) PHS LDI BYTE1(error07) PHS JPA SourceError
+.redef:
+    LDI BYTE0(error23) PHS LDI BYTE1(error23) PHS JPA SourceError
+.store:
+    MIB BYTE0(const_name),const_src+0
+    MIB BYTE1(const_name),const_src+1
+    MBB const_next+0,const_dst+0
+    MBB const_next+1,const_dst+1
+    MIZ 14,z_count
+.cpy:
+    LDR const_src STR const_dst INW const_src INW const_dst
+    DEZ z_count FNE .cpy
+    LDB const_num_type STR const_dst INW const_dst
+    LDB const_data+0 STR const_dst INW const_dst
+    LDB const_data+1 STR const_dst INW const_dst
+    LDB const_data+2 STR const_dst INW const_dst
+    LDB const_data+3 STR const_dst INW const_dst
+    MBB const_tmp+0,const_next+0
+    MBB const_tmp+1,const_next+1
+    RTS
+
+; copies const_text_len bytes from const_text_ptr to const_dst
+ConstCopyStringBlobToDst:
+    CLV z_A
+    MBB const_text_ptr+0,const_src+0
+    MBB const_text_ptr+1,const_src+1
+    MBZ const_text_len+0,z_cnt+0
+    MBZ const_text_len+1,z_cnt+1
+.loop:
+    DEV z_cnt FCC .done
+    LDR const_src STR const_dst INW const_src INW const_dst
+    INV z_A
+    FPA .loop
+.done:
+    RTS
+
+; copies a source string literal at const_text_ptr into const_dst as tokenized bytes
+ConstCopyStringLiteralToDst:
+    CLV z_A
+    MZB z_pc+0,const_savepc+0
+    MZB z_pc+1,const_savepc+1
+    MBZ const_text_ptr+0,z_pc+0
+    MBZ const_text_ptr+1,z_pc+1
+    LDI '"' STR const_dst INW const_dst INV z_A
+    INV z_pc
+.loop:
+    LDT z_pc CPI '"' FEQ .close
+    CPI 0 FEQ .bail
+    CPI 10 FEQ .bail
+    JPS TakeOrd STR const_dst INW const_dst INV z_A
+    FPA .loop
+.close:
+    INV z_pc
+.bail:
+    LDI '"' STR const_dst INW const_dst INV z_A
+    MWV const_savepc,z_pc
+    RTS
+
+; add string constant/alias named const_name with payload in const_text_*
+ConstAddStringEntry:
+    JPS ConstNameExists CPI 1 FEQ .redef
+    MBB consts_next+0,const_tmp+0
+    MBB consts_next+1,const_tmp+1
+    AIW const_str_entry_size,const_tmp
+    MBZ const_text_len+0,z_A+0
+    MBZ const_text_len+1,z_A+1
+    LDZ z_A+1 AD.B const_tmp+1
+    LDZ z_A+0 ADW const_tmp
+    LDB const_tmp+1 CPI BYTE1(conststrtab_end) FCC .store
+    FNE .full
+    LDB const_tmp+0 CPI BYTE0(conststrtab_end) FCC .store
+.full:
+    LDI BYTE0(error07) PHS LDI BYTE1(error07) PHS JPA SourceError
+.redef:
+    LDI BYTE0(error23) PHS LDI BYTE1(error23) PHS JPA SourceError
+.store:
+    MIB BYTE0(const_name),const_src+0
+    MIB BYTE1(const_name),const_src+1
+    MBB consts_next+0,const_dst+0
+    MBB consts_next+1,const_dst+1
+    MIZ 14,z_count
+.cpyname:
+    LDR const_src STR const_dst INW const_src INW const_dst
+    DEZ z_count BNE .cpyname
+    MBB const_dst+0,const_scan+0
+    MBB const_dst+1,const_scan+1
+    AIW 2,const_dst
+    LDB const_rhs_type CPI 1 FNE .blob
+    JPS ConstCopyStringLiteralToDst
+    FPA .writelen
+.blob:
+    JPS ConstCopyStringBlobToDst
+.writelen:
+    LDZ z_A+0 STR const_scan INW const_scan
+    LDZ z_A+1 STR const_scan
+    MBB const_dst+0,consts_next+0
+    MBB const_dst+1,consts_next+1
+    RTS
+
+; lookup by name pointer in const_src (newest-first)
+; returns const_num_type/const_data and A=1 on hit else A=0
+ConstLookupNumeric:
+    MBB const_start+0,const_scan+0
+    MBB const_start+1,const_scan+1
+    CLB z_flag
+.loop:
+    LDB const_scan+1 CPB const_next+1 FCC .cmp
+    FNE .done
+    LDB const_scan+0 CPB const_next+0 FCC .cmp
+    FPA .done
+.cmp:
+    MBB const_src+0,strcmp_b+0
+    MBB const_src+1,strcmp_b+1
+    MBB const_scan+0,strcmp_a+0 MBB const_scan+1,strcmp_a+1
+    JPS strcmp CPI 0 FNE .nextent
+    MBB const_scan+0,const_tmp+0
+    MBB const_scan+1,const_tmp+1
+    AIW 14,const_tmp
+    LDR const_tmp STB const_num_type INW const_tmp
+    LDR const_tmp STB const_data+0 INW const_tmp
+    LDR const_tmp STB const_data+1 INW const_tmp
+    LDR const_tmp STB const_data+2 INW const_tmp
+    LDR const_tmp STB const_data+3
+    MIB 1,z_flag
+.nextent:
+    AIW const_entry_size,const_scan
+    FPA .loop
+.done:
+    CIZ 1,z_flag FEQ .hit
+    LDI 0 RTS
+.hit:
+    LDI 1 RTS
+
+; lookup string constant by name pointer in const_src (newest-first)
+; returns const_text_ptr/const_text_len and A=1 on hit else A=0
+ConstLookupString:
+    MBB const_start+0,const_scan+0
+    MBB const_start+1,const_scan+1
+    CLB z_flag
+.loop:
+    LDB const_scan+1 CPB consts_next+1 FCC .cmp
+    BNE .done
+    LDB const_scan+0 CPB consts_next+0 FCC .cmp
+    JPA .done
+.cmp:
+    MBB const_src+0,strcmp_b+0
+    MBB const_src+1,strcmp_b+1
+    MBB const_scan+0,strcmp_a+0 MBB const_scan+1,strcmp_a+1
+    JPS strcmp CPI 0 FNE .loadlen
+    MBB const_scan+0,const_tmp+0
+    MBB const_scan+1,const_tmp+1
+    AIW 14,const_tmp
+    LDR const_tmp STZ z_A+0 INW const_tmp
+    LDR const_tmp STZ z_A+1 INW const_tmp
+    MZB z_A+0,const_text_len+0
+    MZB z_A+1,const_text_len+1
+    MBB const_tmp+0,const_text_ptr+0
+    MBB const_tmp+1,const_text_ptr+1
+    MIB 1,z_flag
+    FPA .advance
+.loadlen:
+    MBB const_scan+0,const_tmp+0
+    MBB const_scan+1,const_tmp+1
+    AIW 14,const_tmp
+    LDR const_tmp STZ z_A+0 INW const_tmp
+    LDR const_tmp STZ z_A+1
+.advance:
+    MBB const_scan+0,const_tmp+0
+    MBB const_scan+1,const_tmp+1
+    AIW const_str_entry_size,const_tmp
+    LDZ z_A+1 AD.B const_tmp+1
+    LDZ z_A+0 ADW const_tmp
+    MBB const_tmp+0,const_scan+0
+    MBB const_tmp+1,const_scan+1
+    JPA .loop
+.done:
+    CIZ 1,z_flag FEQ .hit
+    LDI 0 RTS
+.hit:
+    LDI 1 RTS
+
+; if identifier is a known constant, emit replacement token bytes at dst
+ConstSubstitute:
+    MBB itnext+0,const_src+0
+    MBB itnext+1,const_src+1
+    MIB BYTE0(consttab),const_start+0
+    MIB BYTE1(consttab),const_start+1
+    JPS ConstLookupNumeric CPI 1 FNE .fail
+    LDB const_num_type CPI 4 FEQ .emitlong
+    LDI 0xd0 STR dst INW dst
+    LDB const_data+0 STR dst INW dst
+    LDB const_data+1 STR dst INW dst
+    LDI 1 RTS
+.emitlong:
+    LDI 0xd1 STR dst INW dst
+    LDB const_data+0 STR dst INW dst
+    LDB const_data+1 STR dst INW dst
+    LDB const_data+2 STR dst INW dst
+    LDB const_data+3 STR dst INW dst
+    LDI 1 RTS
+.fail:
+    MIB BYTE0(conststrtab),const_start+0
+    MIB BYTE1(conststrtab),const_start+1
+    JPS ConstLookupString CPI 1 FNE .miss
+    MBB dst+0,const_dst+0
+    MBB dst+1,const_dst+1
+    JPS ConstCopyStringBlobToDst
+    MBB const_dst+0,dst+0
+    MBB const_dst+1,dst+1
+    LDI 1 RTS
+.miss:
+    LDI 0 RTS
+
+;------------------------------------------------------------------
+; *** Build Options ***
+; Kept at the end so that changing the build options doesn't impact
+; subsequant fast/local branchs & jump instgruciton usage.
+;------------------------------------------------------------------
+
+; ------------------------------------------------------------------------------------------------
+; OPTIONAL ACCELERATOR HELPERS
+; ------------------------------------------------------------------------------------------------
+
+; int_mul
+; 16-bit multiplicands are in z_A and z_B, results reutrned in z_A
+; results are truncated to the lower 16-bits.
+; variable z_C used during calculation.
+int_mul:
+    ; Return the low 16 bits of the canonical 16x16 multiply core.
+    JPS Mul16FullABToC
+    MVV z_C,z_A
+    RTS
+
+
+#ifdef USE_ACCELERATOR
+; Full 16-bit multiplication with multiplicands in z_A and z_B
+; and the 32-bit result is returned in z_C.
+Mul16FullABToC:
+    LDZ z_A+0 STB MULTIPLIER_A
+    LDZ z_B+0 STB MULTIPLIER_B
+    LDB MULTIPLIER_RESULT_LSB STZ z_C+0
+    LDB MULTIPLIER_RESULT_MSB STZ z_C+1
+
+    LDZ z_A+1 STB MULTIPLIER_A
+    LDZ z_B+1 STB MULTIPLIER_B
+    LDB MULTIPLIER_RESULT_LSB STZ z_C+2
+    LDB MULTIPLIER_RESULT_MSB STZ z_C+3
+
+    LDZ z_A+1 STB MULTIPLIER_A
+    LDZ z_B+0 STB MULTIPLIER_B
+    LDB MULTIPLIER_RESULT_LSB AD.Z z_C+1
+    LDB MULTIPLIER_RESULT_MSB AC.Z z_C+2
+    LDI 0
+    AC.Z z_C+3
+
+    LDZ z_A+0 STB MULTIPLIER_A
+    LDZ z_B+1 STB MULTIPLIER_B
+    LDB MULTIPLIER_RESULT_LSB AD.Z z_C+1
+    LDB MULTIPLIER_RESULT_MSB AC.Z z_C+2
+    LDI 0
+    AC.Z z_C+3
+    RTS
+#else
+; Full 16-bit multiplication with multiplicands in z_A and z_B
+; and the 32-bit result is returned in z_C. z_B will be destroyed,
+; and z_H is used during calculation.
+Mul16FullABToC:
+    CLQ z_C
+    CLQ z_H
+    MVV z_A,z_H
+    MIZ 16,z_count
+mul16full_loop:
+    LDZ z_B+0 ANI 1 CPI 1 FNE mul16full_skip
+    AQQ z_H,z_C
+mul16full_skip:
+    LLQ z_H
+    CLC
+    RRZ z_B+1
+    RRZ z_B+0
+    DEZ z_count FNE mul16full_loop
+    RTS
+#endif
+
+; --------------------------------------------------------------------------------------
+; ERROR STRINGS
+; --------------------------------------------------------------------------------------
+error01:  .cstr "Invalid ID"
+error02:  .cstr "Unknown stmt"
+error05:  .cstr "Invalid expr"
+error06:  .cstr "Type mismatch"
+error07:  .cstr "Out of IDs"
+error08:  .cstr "Out of RAM"
+error11:  .cstr "Unclear indent"
+error14:  .cstr "Invalid index"
+error16:  .cstr "Invalid def"
+error17:  .cstr "Invalid parameter"
+error19:  .cstr "Invalid argument"
+error22:  .cstr "Devide by 0"
+error23:  .cstr "Duplicate constant name"
+error24:  .cstr "Value overflow"
+error25:  .cstr "Duplicate variable name"
+error26:  .cstr "Call stack overflow"
+error30:  .cstr "Expect ]"
+error31:  .cstr "Expect ("
+error32:  .cstr "Expect )"
+error33:  .cstr "Expect ="
+
+
+
+; --------------------------------------------------------------------------------------
+; GLOBAL STATE
+; --------------------------------------------------------------------------------------
+
+g_stop:             .2byte 0x0000           ; tokenizer will stop here, set to 0xffff to tokenize the entire source code
+g_line:             .2byte 0x0000           ; line number (set by the tokenizer)
+slice_start:        .2byte 0x0000           ; Factor() slice start index temp
+slice_count:        .2byte 0x0000           ; Factor() slice element-count temp
+slice_max:          .2byte 0x0000           ; Factor() slice bounds temp
+const_local_base:   .2byte 0x0000           ; const table watermark at function entry
+consts_local_base:  .2byte 0x0000           ; string const table watermark at function entry
+const_linepc:       .2byte 0x0000           ; saved z_pc while probing line head
+const_savepc:       .2byte 0x0000           ; saved z_pc while parsing optional const decl
+const_local_active: .byte  0x00             ; 1 while inside function body
+const_rhs_type:     .byte  0x00             ; 0=numeric, 1=string literal, 2=string alias
+const_num_type:     .byte  0x02             ; 2=emit TN_INT_CONST, 4=emit TN_LONG_CONST
+const_text_ptr:     .2byte 0x0000           ; source quote or string payload pointer
+const_text_len:     .2byte 0x0000           ; emitted string token length in bytes
+const_data:         .4byte 0x00000000       ; parsed numeric literal/value
+const_next:         .2byte 0x0000           ; next free const table entry
+const_start:        .2byte 0x0000           ; const lookup scan pointer (start)
+const_src:          .2byte 0x0000           ; temp pointer to source const name
+const_dst:          .2byte 0x0000           ; temp pointer to const entry payload
+consts_next:        .2byte 0x0000           ; next free string const table entry
+
+; constant-declaration type names
+; kept adjacent to runtime keyword items so shared spellings stay visibly aligned
+const_type_items:
+    .byte 'char',0,'.........', 1
+    .byte 'int',0,'..........', 2
+    .byte 'string',0,'.......', 3
+    .byte 'long',0,'.........', 4
+const_type_items_end:
+
+; tokenizing item dictionary
+items:
+    .byte 'if',0,'...........', 'I',  0xff
+    .byte 'elif',0,'.........', 'F',  0xff
+    .byte 'else',0,'.........', 'E',  0xff
+    .byte 'while',0,'........', 'W',  0xff
+    .byte 'break',0,'........', 'B',  0xff
+    .byte 'def',0,'..........', 'D',  0xff
+    .byte 'return',0,'.......', 'R',  0xff
+    .byte 'char',0,'.........', '1',  0xff
+    .byte 'int',0,'..........', '2',  0xff
+    .byte 'long',0,'.........', '4',  0xff
+    .byte 'call',0,'.........', 'C',  0xff
+    .byte 'not',0,'..........', 0xd9, 0xff
+    .byte 'and',0,'..........', 0xda, 0xff
+    .byte 'or',0,'...........', 0xdb, 0xff
+    .byte 'xor',0,'..........', 0xdc, 0xff
+    .byte 'print',0,'........', 'P',  0xff
+newitems:                                   ; start of new tokenizer items (variables and calls)
+
+; --------------------------------------------------------------------------------------
+; MIN GLOBAL CONSTANTS
+; --------------------------------------------------------------------------------------
+#mute
+
+file      = 0x8000                          ; beginning of source + tokenized area
+firstsp   = 0xda00                          ; data memory stack
+endsp     = 0xdfff                          ; usable local/expr stack end (1536 bytes)
+lhs_spill_base = 0x3f80                     ; long-lhs spill stack base in interpreter RAM
+lhs_spill_end  = 0x3fff                     ; long-lhs spill stack end in interpreter RAM
+source_top = firstsp                        ; exclusive end of source + tokenized area
+firstcall = 0xe000                          ; call dictionary 3 bytes * 256 = 0x300 bytes
+firstvar  = 0xe300                          ; var dictionary  9 bytes * 256 = 0x900 bytes
+firstsrc  = 0xec00                          ; vector of imported source files (22bytes * 5 = 110 bytes, max. 5 entries)
+endsrc    = 0xed00                          ; page-aligned end guard for source vector
+consttab  = firstcall                       ; tokenizer-only constants table (reused by call dict at runtime)
+consttab_end        = firstvar              ; table grows up to call/var boundary
+const_entry_size    = 19                    ; 14-byte name + 1-byte width + 4-byte numeric value
+conststrtab         = firstvar              ; tokenizer-only string constants table (reused by var dict at runtime)
+conststrtab_end     = firstsrc              ; table grows up to var/source-vector boundary
+const_str_entry_size = 16                   ; 14-byte name + 2-byte bytecount, followed by payload
+call_depth_max      = 5                     ; prevent hardware-stack lockup on deep recursion
+
+MULTIPLIER_A          = 0xfed0
+MULTIPLIER_B          = 0xfed1
+MULTIPLIER_RESULT_LSB = 0xfed2
+MULTIPLIER_RESULT_MSB = 0xfed3
+
+.memzone MIN_LHS_SPILL
+.org 0 "MIN_LHS_SPILL"
+lhs_spill_reserved:
+    .zero lhs_spill_end - lhs_spill_base + 1
+
+#create_memzone MIN_ZERO_PAGE  0x0030 0x007F
+.memzone MIN_ZERO_PAGE
+
+; --------------------------------------------------------------------------------------
+; CANONICAL CPU STACK CONVENTIONS (Milestone 4)
+; --------------------------------------------------------------------------------------
+; 16-bit values: Push LSB first, then MSB
+;   After push: stack contains [MSB, LSB] (MSB on top)
+;   Pop order: MSB first, then LSB
+;   Example: LDZ z_A+0 PHS LDZ z_A+1 PHS  ; push
+;            PLS STZ z_A+1 PLS STZ z_A+0  ; pop
+;
+; 32-bit values: Push byte 0 (LSB), byte 1, byte 2, byte 3 (MSB)
+;   After push: stack contains [byte3, byte2, byte1, byte0] (byte3 on top)
+;   Pop order: byte 3, byte 2, byte 1, byte 0
+;   Example: LDZ z_E+0 PHS LDZ z_E+1 PHS LDZ z_E+2 PHS LDZ z_E+3 PHS  ; push
+;            PLS STZ z_E+3 PLS STZ z_E+2 PLS STZ z_E+1 PLS STZ z_E+0  ; pop
+; --------------------------------------------------------------------------------------
+
+z_A:         .2byte 0x0000                  ; MATH REGISTERS
+z_B:         .2byte 0x0000
+z_C:         .4byte 0x00000000              ; used as modifiable copy
+z_D:         .2byte 0x0000                  ; only used by div
+z_E:         .4byte 0x00000000              ; 32-bit temp for long parsing / printing
+z_F:         .4byte 0x00000000              ; long temp for mul/div helpers
+z_G:         .4byte 0x00000000              ; long temp for mul/div helpers
+z_H:         .4byte 0x00000000              ; software 16x16 multiply temp
+z_count:     .byte  0x00
+z_flag:      .byte  0x00
+z_tmp_type:  .byte  0x00                    ; named scratch for parsed/runtime type bytes
+z_tmp_fastop:.byte  0x00                    ; named scratch for += / -= fast-op token
+pop_int_ret: .2byte 0x0000                  ; temp storage for return address in PopIntLhsHiLoToLongE
+
+z_pc:        .2byte 0x0000                  ; program counter
+z_sub:       .byte  0xff                    ; subroutine calling level
+z_tind:      .byte  0xff                    ; target indentation
+z_mind:      .byte  0xff                    ; measured indentation
+z_halt:      .byte  0xff                    ; halt flags ... stop processing of statements
+z_nextcall:  .2byte 0xffff                  ; free top of call list
+z_nextvar:   .2byte 0xffff                  ; free top of var list
+z_nextsrc:   .2byte 0xffff                  ; free top of the source list
+z_sp:        .2byte 0xffff                  ; expression stack pointer (to char or LSB of int)
+z_spi:       .2byte 0xffff                  ; expression stack pointer (to MSB of int)
+z_cnt:       .2byte 0xffff                  ; element count of expression (or returned data) on stack
+z_type:      .byte  0xff                    ; element type of last expression (or returned data) on stack
+z_retsp:     .2byte 0xffff                  ; pointer at returned expression data on the stack
+z_refcnt:    .2byte 0xffff                  ; used by @: referenced element count, set by & only if cnt > 1
+z_refset:    .byte  0xff                    ; 1: refcnt was actively set, 0: use refcnt = 1
+
+z_vcache_id:        .byte  0xff             ; getVar() cache key: var_id
+z_vcache_sub:       .byte  0xff             ; getVar() cache key: current sub
+z_vcache_top:       .2byte 0xffff           ; getVar() cache key: z_nextvar snapshot
+z_vcache_ptr:       .2byte 0xffff           ; getVar() cache value: pointer to var->type
+z_fun_argpc:        .2byte 0xffff           ; FunctionCall cursor: caller arg stream
+z_fun_parpc:        .2byte 0xffff           ; FunctionCall cursor: callee param stream
+
+getptr:             .2byte 0xffff           ; getVar()/getCall() dictionary scan pointer
+facptr:             .2byte 0xffff           ; Factor() variable payload pointer
+assptr:             .2byte 0xffff           ; VarAssignment() variable payload pointer
+call_depth:         .byte  0x00             ; active runtime function-call depth guard
+const_wait_fun:     .byte  0x00             ; 1 after def-line, waiting for body indentation
+tcomp_type:         .byte  0x00             ; TypedCompExpr requested destination type cache
+longptr:            .2byte 0x0000           ; temp pointer for long stack/table access
+lhs_spill_ptr:      .2byte 0x0000           ; long-lhs spill stack cursor for nested expressions
+
+; these variables are also the interface to the base OS's graphics API. Location is important.
+.memzone ZERO_PAGE_OS
+.org 0 "ZERO_PAGE_OS"
+z_PtrA:  .byte 0,0,0                        ; lokaler pointer (3 bytes) used for FLASH addr and bank, also graphics (xa, ya)
+z_PtrB:  .byte 0,0,0                        ; lokaler pointer (3 bytes), also graphics (xb, yb)
+z_PtrC:  .byte 0,0,0                        ; reserved OS pointer slot (used by OS routines such as _FindFile)
+z_PtrD:  .byte 0,0,0                        ; lokaler pointer (3 bytes), also graphics (dx, dy)
+
+
+
+#unmute

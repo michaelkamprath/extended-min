@@ -1,0 +1,116 @@
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0
+int t7 = 0; int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0
+
+def show_pass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def show_fail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+int a = 30000
+int b = 3
+int c = a * b
+int d = c / b
+# Test 1: legacy int multiply truncation semantics.
+if c == 24464:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 int mul trunc\n")
+  failed += 1; t1 = -1
+
+# Test 2: legacy int divide after truncated multiply.
+if d == 8154:
+  passed += 1; t2 = 1
+else:
+  print("FAIL 2 int div trunc\n")
+  failed += 1; t2 = -1
+
+long e = 30000
+long f = 4
+long g = e * f
+long h = g / f
+# Test 3: long multiply.
+if g == 120000:
+  passed += 1; t3 = 1
+else:
+  print("FAIL 3 long mul\n")
+  failed += 1; t3 = -1
+
+# Test 4: long divide.
+if h == 30000:
+  passed += 1; t4 = 1
+else:
+  print("FAIL 4 long div\n")
+  failed += 1; t4 = -1
+
+long i = 7 * long(50000)
+long j = i / 7
+# Test 5: mixed int/long multiply promotion.
+if i == 350000:
+  passed += 1; t5 = 1
+else:
+  print("FAIL 5 mixed mul\n")
+  failed += 1; t5 = -1
+
+# Test 6: mixed int/long divide after promotion.
+if j == 50000:
+  passed += 1; t6 = 1
+else:
+  print("FAIL 6 mixed div\n")
+  failed += 1; t6 = -1
+
+long k = -long(9) * long(7)
+long m = long(9) * (-long(7))
+long n = -long(9) / 2
+long p = long(9) / (-2)
+long q = -long(9) / -2
+# Test 7: negative lhs long multiply.
+if k == -63:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 neg lhs mul\n")
+  failed += 1; t7 = -1
+
+# Test 8: negative rhs long multiply.
+if m == -63:
+  passed += 1; t8 = 1
+else:
+  print("FAIL 8 neg rhs mul\n")
+  failed += 1; t8 = -1
+
+# Test 9: negative lhs long divide.
+if n == -4:
+  passed += 1; t9 = 1
+else:
+  print("FAIL 9 neg lhs div\n")
+  failed += 1; t9 = -1
+
+# Test 10: negative rhs long divide.
+if p == -4:
+  passed += 1; t10 = 1
+else:
+  print("FAIL 10 neg rhs div\n")
+  failed += 1; t10 = -1
+
+# Test 11: double-negative long divide.
+if q == 4:
+  passed += 1; t11 = 1
+else:
+  print("FAIL 11 neg both div\n")
+  failed += 1; t11 = -1
+
+print("PASS ")
+show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5); show_pass(6, t6)
+show_pass(7, t7); show_pass(8, t8); show_pass(9, t9); show_pass(10, t10); show_pass(11, t11)
+print("\nFAIL ")
+show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5); show_fail(6, t6)
+show_fail(7, t7); show_fail(8, t8); show_fail(9, t9); show_fail(10, t10); show_fail(11, t11)
+print("\np6muldiv PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

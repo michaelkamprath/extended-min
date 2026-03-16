@@ -1,0 +1,83 @@
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0; int t7 = 0; int t8 = 0
+
+def show_pass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def show_fail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+char s = s[|10]
+s = "0123456789"
+# Test 1: indexed read at start of source buffer.
+if s[0] == 48:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 s[0]\n")
+  failed += 1; t1 = -1
+
+# Test 2: indexed read at end of source buffer.
+if s[9] == 57:
+  passed += 1; t2 = 1
+else:
+  print("FAIL 2 s[9]\n")
+  failed += 1; t2 = -1
+
+char left = s[0|5]
+# Test 3: slice keeps first byte.
+if left[0] == 48:
+  passed += 1; t3 = 1
+else:
+  print("FAIL 3 left[0]\n")
+  failed += 1; t3 = -1
+
+# Test 4: slice keeps last requested byte.
+if left[4] == 52:
+  passed += 1; t4 = 1
+else:
+  print("FAIL 4 left[4]\n")
+  failed += 1; t4 = -1
+
+int d = 2
+char mid = s[d|d+3]
+# Test 5: variable-based slice start.
+if mid[0] == 50:
+  passed += 1; t5 = 1
+else:
+  print("FAIL 5 mid[0]\n")
+  failed += 1; t5 = -1
+
+# Test 6: variable-based slice end.
+if mid[2] == 52:
+  passed += 1; t6 = 1
+else:
+  print("FAIL 6 mid[2]\n")
+  failed += 1; t6 = -1
+
+char joined = left _ mid
+# Test 7: concatenated string keeps first slice prefix.
+if joined[0] == 48:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 join[0]\n")
+  failed += 1; t7 = -1
+
+# Test 8: concatenated string keeps second slice suffix.
+if joined[7] == 52:
+  passed += 1; t8 = 1
+else:
+  print("FAIL 8 join[7]\n")
+  failed += 1; t8 = -1
+
+print("PASS ")
+show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5); show_pass(6, t6); show_pass(7, t7); show_pass(8, t8)
+print("\nFAIL ")
+show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5); show_fail(6, t6); show_fail(7, t7); show_fail(8, t8)
+print("\narrslice PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

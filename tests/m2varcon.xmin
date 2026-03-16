@@ -1,0 +1,193 @@
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0; int t7 = 0
+int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0; int t13 = 0; int t14 = 0
+int t15 = 0; int t16 = 0; int t17 = 0; int t18 = 0; int t19 = 0
+
+def show_pass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def show_fail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+int a = 100
+# Test 1: var `==` constant true case.
+if a == 100:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 eq const\n")
+  failed += 1; t1 = -1
+
+# Test 2: var `==` constant false case.
+if a == 50:
+  print("FAIL 2 eq const false\n")
+  failed += 1; t2 = -1
+else:
+  passed += 1; t2 = 1
+
+int b = 50
+# Test 3: var `!=` constant true case.
+if b != 100:
+  passed += 1; t3 = 1
+else:
+  print("FAIL 3 ne const\n")
+  failed += 1; t3 = -1
+
+# Test 4: var `!=` constant false case.
+if b != 50:
+  print("FAIL 4 ne const false\n")
+  failed += 1; t4 = -1
+else:
+  passed += 1; t4 = 1
+
+int count = 0
+int i = 0
+while i < 100:
+  i += 1
+  if i == 50:
+    count += 1
+  if i == 75:
+    count += 1
+# Test 5: repeated var-vs-constant checks inside a loop.
+if count == 2:
+  passed += 1; t5 = 1
+else:
+  print("FAIL 5 loop const\n")
+  failed += 1; t5 = -1
+
+int x = 0
+int hits = 0
+while x < 100:
+  x += 1
+  if x == 10:
+    break
+  int y = 0
+  while y < 100:
+    y += 1
+    if y == 5:
+      break
+    hits += 1
+# Test 6: outer-loop break triggered by constant compare.
+if x == 10:
+  passed += 1; t6 = 1
+else:
+  print("FAIL 6 outer break\n")
+  failed += 1; t6 = -1
+
+# Test 7: inner-loop break keeps later statements aligned.
+if hits == 36:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 inner hits\n")
+  failed += 1; t7 = -1
+
+int c = 100
+int d = 100
+int e = 50
+# Test 8: var-vs-var equality still takes the non-fast path correctly.
+if c == d:
+  passed += 1; t8 = 1
+else:
+  print("FAIL 8 var eq var\n")
+  failed += 1; t8 = -1
+
+# Test 9: var-vs-var false equality case.
+if c == e:
+  print("FAIL 9 var eq false\n")
+  failed += 1; t9 = -1
+else:
+  passed += 1; t9 = 1
+
+int val = 3
+# Test 10: first sequential constant miss.
+if val == 1:
+  print("FAIL 10 seq one\n")
+  failed += 1; t10 = -1
+else:
+  passed += 1; t10 = 1
+
+# Test 11: second sequential constant miss.
+if val == 2:
+  print("FAIL 11 seq two\n")
+  failed += 1; t11 = -1
+else:
+  passed += 1; t11 = 1
+
+# Test 12: third sequential constant hit.
+if val == 3:
+  passed += 1; t12 = 1
+else:
+  print("FAIL 12 seq three\n")
+  failed += 1; t12 = -1
+
+# Test 13: fourth sequential constant miss.
+if val == 4:
+  print("FAIL 13 seq four\n")
+  failed += 1; t13 = -1
+else:
+  passed += 1; t13 = 1
+
+int big = 30000
+# Test 14: large decimal constant compare.
+if big == 30000:
+  passed += 1; t14 = 1
+else:
+  print("FAIL 14 big\n")
+  failed += 1; t14 = -1
+
+int hex = 0xff
+# Test 15: hexadecimal constant compare.
+if hex == 0xff:
+  passed += 1; t15 = 1
+else:
+  print("FAIL 15 hex\n")
+  failed += 1; t15 = -1
+
+int zero = 0
+int nonzero = 1
+# Test 16: explicit zero compare.
+if zero == 0:
+  passed += 1; t16 = 1
+else:
+  print("FAIL 16 zero\n")
+  failed += 1; t16 = -1
+
+# Test 17: non-zero value should not equal zero.
+if nonzero == 0:
+  print("FAIL 17 nonzero\n")
+  failed += 1; t17 = -1
+else:
+  passed += 1; t17 = 1
+
+int neg = -50
+# Test 18: negative constant compare.
+if neg == -50:
+  passed += 1; t18 = 1
+else:
+  print("FAIL 18 neg\n")
+  failed += 1; t18 = -1
+
+int m = 10
+int n = 5
+# Test 19: expression result compared against constant.
+if m + n == 15:
+  passed += 1; t19 = 1
+else:
+  print("FAIL 19 expr const\n")
+  failed += 1; t19 = -1
+
+print("PASS ")
+show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5); show_pass(6, t6); show_pass(7, t7)
+show_pass(8, t8); show_pass(9, t9); show_pass(10, t10); show_pass(11, t11); show_pass(12, t12); show_pass(13, t13); show_pass(14, t14)
+show_pass(15, t15); show_pass(16, t16); show_pass(17, t17); show_pass(18, t18); show_pass(19, t19)
+print("\nFAIL ")
+show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5); show_fail(6, t6); show_fail(7, t7)
+show_fail(8, t8); show_fail(9, t9); show_fail(10, t10); show_fail(11, t11); show_fail(12, t12); show_fail(13, t13); show_fail(14, t14)
+show_fail(15, t15); show_fail(16, t16); show_fail(17, t17); show_fail(18, t18); show_fail(19, t19)
+print("\nm2varcon PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")
