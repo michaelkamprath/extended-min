@@ -32,6 +32,14 @@ if ! command -v bespokeasm >/dev/null 2>&1; then
   exit 2
 fi
 
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+fetch_script="$script_dir/fetch_min64x4_config.sh"
+
+if [[ ! -x "$fetch_script" ]]; then
+  echo "Missing required helper: $fetch_script" >&2
+  exit 2
+fi
+
 extra_args=()
 if [[ $# -gt 0 ]]; then
   if [[ "$1" != "--" ]]; then
@@ -42,28 +50,10 @@ if [[ $# -gt 0 ]]; then
   extra_args=("$@")
 fi
 
-fetch_config() {
-  local dest="$1"
-  local url="https://raw.githubusercontent.com/michaelkamprath/bespokeasm/main/examples/slu4-minimal-64x4/slu4-minimal-64x4.yaml"
-
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$dest" "$url"
-    return 0
-  fi
-
-  if command -v wget >/dev/null 2>&1; then
-    wget -qO "$dest" "$url"
-    return 0
-  fi
-
-  echo "Need curl or wget to fetch the Minimal 64x4 BespokeASM config." >&2
-  return 1
-}
-
 cfg="${MIN64X4_CONFIG_PATH:-/tmp/slu4-minimal-64x4.yaml}"
 
 if [[ ! -s "$cfg" ]]; then
-  fetch_config "$cfg"
+  "$fetch_script" "$cfg" >/dev/null
 fi
 
 if [[ ! -s "$cfg" ]]; then

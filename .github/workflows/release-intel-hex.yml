@@ -1,0 +1,63 @@
+name: Publish Intel HEX Release Asset
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install BespokeASM
+        run: pip install "git+https://github.com/michaelkamprath/bespokeasm.git"
+
+      - name: Build Intel HEX assets
+        id: build
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          cfg="$(skills/compile-min-64x4/scripts/fetch_min64x4_config.sh)"
+          asset_name="extended-min.${RELEASE_TAG}.hex"
+          acc_asset_name="extended-min-acc.${RELEASE_TAG}.hex"
+
+          bespokeasm compile \
+            -c "$cfg" \
+            -n \
+            -p \
+            -t intel_hex \
+            extended-min.min64x4 >"$asset_name"
+
+          bespokeasm compile \
+            -c "$cfg" \
+            -n \
+            -p \
+            -t intel_hex \
+            -D USE_ACCELERATOR \
+            extended-min.min64x4 >"$acc_asset_name"
+
+          test -s "$asset_name"
+          test -s "$acc_asset_name"
+          echo "asset_path=$PWD/$asset_name" >> "$GITHUB_OUTPUT"
+          echo "acc_asset_path=$PWD/$acc_asset_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.build.outputs.asset_path }}
+            ${{ steps.build.outputs.acc_asset_path }}
