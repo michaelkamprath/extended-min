@@ -10,7 +10,15 @@ The primary enhancements to Min in this extended version includes:
 
 
 ## Installing Extended Min
-Extended Min must be built with [the BespokeASM assembler](https://github.com/michaelkamprath/bespokeasm) rather than the Minimal 64x4 assembler.
+Extended Min must be built with [the BespokeASM assembler](https://github.com/michaelkamprath/bespokeasm) rather than the Minimal 64x4 assembler. Can use [the compile skill below](#using-the-compile-skill) or directly buil Extended Min with this command:
+
+```bash
+bespokeasm compile -c /path/to/slu4-minimal-64x4.yaml -n -p -t intel_hex extended-min.min64x4
+```
+
+The resulting Intel Hex output is then transfered to the Minimal 64x4 via the UART connection using its `receive` command. Once downloaded to the Minimal 64x4, pay attention to the start and stop address of the downloaded Intel Hex, then save the code to a program file on the Minimal 64x4 with the command `save XXXX YYYYY xmin`, where `XXXX` is the start address (typically hex 1000) and `YYYY` is the stop adress (something around hex 3B00). 
+
+Alternatively, the Intel Hex compilation of most recent release of Extend Min from the releases in this repository on Github. Note that the `acc` variant is intended to be used with the [multiplier accelerator card](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier).
 
 ## Skills
 
@@ -363,9 +371,6 @@ call 0xf033
 
 `call` requires an integer constant address.
 
-## TODO
-
-See [`TODO.md`](./TODO.md) for planned language and runtime improvements.
 
 ## Small example
 
