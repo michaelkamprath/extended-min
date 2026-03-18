@@ -337,16 +337,20 @@ Top-level `def` only:
 - functions are defined at top level
 - nested function definitions are not supported
 
-## Printing
+## Printing and serial output
 
-Use `print(...)` with one or more expressions.
+Three output functions share the same syntax and argument handling:
+
+- `print(...)` — sends output to the screen
+- `serial(...)` — sends output to the UART (serial port)
+- `output(...)` — sends output to both the screen and the UART
 
 Examples:
 
 ```xmin
 print("score = ", score, "\n")
-print(big)
-print("\n")
+serial("debug: ", value, "\n")
+output("log: ", msg, "\n")
 ```
 
 Behavior:

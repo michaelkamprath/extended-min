@@ -1,0 +1,32 @@
+int passed = 0
+int failed = 0
+int t1 = 0
+int t2 = 0
+int t3 = 0
+
+long big = 70000
+serial("serial smoke ", 123, "_", big, "\n")
+# Test 1: serial accepts mixed char/int/long arguments.
+passed += 1; t1 = 1
+
+serial("second line ", long(42), "\n")
+# Test 2: serial may be called repeatedly in one program.
+passed += 1; t2 = 1
+
+output("test #", 3, " is to outpu()")
+# test 3 to both
+passed += 1; t3 = 1
+
+print("PASS ")
+if t1 == 1:
+  print(1); print(" ")
+if t2 == 1:
+  print(2); print(" ")
+if t3 == 1:
+  print(3, " ")
+
+print("\np7serial PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

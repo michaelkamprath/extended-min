@@ -115,7 +115,7 @@ Token forms:
   - `not`=`0xd9`, `and`=`0xda`, `or`=`0xdb`, `xor`=`0xdc`
   - `<<`=`0xdd`, `>>`=`0xde`
 - keyword single-byte statement tokens:
-  - `if/elif/else/while/break/def/return/char/int/long/call/print` -> `'I','F','E','W','B','D','R','1','2','4','C','P'`
+  - `if/elif/else/while/break/def/return/char/int/long/call/print/serial/output` -> `'I','F','E','W','B','D','R','1','2','4','C','P','Q','O'`
 - identifiers:
   - variables emit `'V' <id>`
   - function names emit `'S' <id>`
@@ -225,7 +225,7 @@ CPU Stack Conventions (Milestone 4):
 ## Statements and Control Flow
 Dispatch:
 - `Statement` handles block-level keywords (`if`, `while`, `def`) and delegates other forms to `SimpleLine`.
-- `SimpleLine` handles assignments, `break`, function call, `return`, declarations, `call`, `print`.
+- `SimpleLine` handles assignments, `break`, function call, `return`, declarations, `call`, `print`, `serial`, `output`.
 
 Blocks:
 - `Block` creates scope by saving/restoring `z_nextvar` and stack pointers.
@@ -304,6 +304,8 @@ Notable diagnostics now include:
 - Import loading is source-text driven (`use "..."`) before interpretation.
 - The interpreter is compact and fast because tokenization removes most string parsing from runtime.
 - `print(...)` emits char payloads as strings, and int payloads as decimal values joined with `_`.
+- `serial(...)` behaves identically to `print(...)` but routes all output to the UART via `OUT`/`_SerialWait` instead of screen output.
+- `output(...)` behaves identically to `print(...)` but sends output to both the screen and the UART.
 - `call <const_addr>` requires a tokenized integer constant address, making external API calls explicit and low-overhead.
 - Multiple function groups are page-aligned with `.align` so fast-branch instructions can remain valid.
 
@@ -364,6 +366,8 @@ simple-stmt = type, identifier, ['@', expr ], ['=', comp-expr ]           (* var
             | 'break'
             | 'call', constant                                             (* external call to fixed address *)
             | 'print', '(', { comp-expr, [','] }, ')'
+            | 'serial', '(', { comp-expr, [','] }, ')'
+            | 'output', '(', { comp-expr, [','] }, ')'
 
 constant    = '0x', { hexdigit }                                          (* int HEX number; bare 0x means zero *)
             | digit, { digit }                                            (* int DEC number *)
