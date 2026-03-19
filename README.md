@@ -3,10 +3,10 @@ Adds functionality to the orignal Min programming language for the Minimal 64x4 
 
 The primary enhancements to Min in this extended version includes:
 - Support for various hardware expansion cards made for the Minimal 64x4, notablye the [multiplication accelerator](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier)
-- Various speed improvements in the Min parser
 - Additions of constants to the language to avoid the use of "magic numbers" or "magic strings" (new `string` constant type).
 - Support for the `long` 32-bit signed integer type.
 - Introduction of explicit type casting to avoid silent value truncations.
+- Ability print to not only the screen, but also the UART connection.
 
 
 ## Installing Extended Min

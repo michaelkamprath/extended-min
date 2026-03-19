@@ -54,8 +54,6 @@ All scripts live in `scripts/`:
   - extracts `g_stop` from both pretty listings
 - `run_candidate.sh`
   - runs optimize + metrics for one candidate file
-- `sweep_string_layout.sh`
-  - benchmarks standard error-string placement variants
 - `show_align_padding.sh`
   - computes total padding cost from a pretty listing containing `.align`
 
@@ -90,8 +88,8 @@ All scripts live in `scripts/`:
      /tmp/optimize-size.<tag>.noacc.pretty \
      /tmp/optimize-size.<tag>.acc.pretty
    ```
-5. Compare candidates using the score tuple from `collect_metrics.sh`.
-6. Apply only the winning candidate back to `extended-min.min64x4`.
+5. Review the score tuple from `collect_metrics.sh`.
+6. If you optimized a copy, apply that optimized file back to `extended-min.min64x4`.
 
 ## Score Strategy (Deterministic)
 
@@ -105,10 +103,9 @@ This prioritizes smallest binary size across both build modes, then fastest bran
 
 ## Layout Strategy
 
+- Preserve the existing source layout during routine optimize-size passes.
 - Keep toggle-sensitive optional code (for `USE_ACCELERATOR`) at the tail.
-- Treat large `.cstr` blocks as phase shifters that move later code across page boundaries.
-- Test placement variants as separate candidates, then run full dual optimization per candidate.
-- Use `sweep_string_layout.sh` for the standard string-block variants.
+- Do not spend time on string-layout sweeps as part of the standard workflow.
 
 ## Optional Alignment-Budget Phase
 
@@ -123,6 +120,5 @@ Only if requested:
 
 - `/tmp/optimize-size.<tag>.noacc.pretty`
 - `/tmp/optimize-size.<tag>.acc.pretty`
-- optional variant files in `/tmp/opt-size-variants.*`
 
 For full method details and decision rules, read `references/workflow.md`.

@@ -41,7 +41,8 @@ From comments and constants in this file:
 - `0xed00`: page-aligned source-vector guard (`endsrc`)
 - `0xff00..0xffff`: CPU fast page + hardware stack (managed by CPU push/pop and subroutine calls)
 
-Zero page (`MIN_ZERO_PAGE`, `0x0030..0x007f`) holds nearly all hot interpreter state (`z_pc`, `z_sp`, `z_type`, `z_cnt`, pointers, math registers), plus:
+Zero page (`MIN_ZERO_PAGE`, `0x0020..0x007f`) holds nearly all hot interpreter state (`z_pc`, `z_sp`, `z_type`, `z_cnt`, pointers, math registers), plus:
+- `Factor` slice temporaries (`slice_start`, `slice_count`, `slice_max`)
 - a tiny `getVar` hot cache (`z_vcache_*`)
 - function-call parser cursors (`z_fun_argpc`, `z_fun_parpc`)
 

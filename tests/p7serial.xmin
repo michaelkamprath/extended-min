@@ -13,7 +13,7 @@ serial("second line ", long(42), "\n")
 # Test 2: serial may be called repeatedly in one program.
 passed += 1; t2 = 1
 
-output("test #", 3, " is to outpu()")
+output("test #", 3, " is to output()\n")
 # test 3 to both
 passed += 1; t3 = 1
 
