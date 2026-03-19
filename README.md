@@ -1,8 +1,8 @@
 # Extended Min
-Adds functionality to the orignal Min programming language for the Minimal 64x4 Home Computer by Carsten Herting. Based on CArsten's original work.
+Adds functionality to the original Min programming language for the Minimal 64x4 Home Computer by Carsten Herting. Based on Carsten's original work.
 
-The primary enhancements to Min in this extended version includes:
-- Support for various hardware expansion cards made for the Minimal 64x4, notablye the [multiplication accelerator](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier)
+The primary enhancements to Min in this extended version include:
+- Support for various hardware expansion cards made for the Minimal 64x4, notably the [multiplication accelerator](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier)
 - Additions of constants to the language to avoid the use of "magic numbers" or "magic strings" (new `string` constant type).
 - Support for the `long` 32-bit signed integer type.
 - Introduction of explicit type casting to avoid silent value truncations.
@@ -10,15 +10,15 @@ The primary enhancements to Min in this extended version includes:
 
 
 ## Installing Extended Min
-Extended Min must be built with [the BespokeASM assembler](https://github.com/michaelkamprath/bespokeasm) rather than the Minimal 64x4 assembler. Can use [the compile skill below](#using-the-compile-skill) or directly buil Extended Min with this command:
+Extended Min must be built with [the BespokeASM assembler](https://github.com/michaelkamprath/bespokeasm) rather than the Minimal 64x4 assembler. You can use [the compile skill below](#using-the-compile-skill) or directly build Extended Min with this command:
 
 ```bash
 bespokeasm compile -c /path/to/slu4-minimal-64x4.yaml -n -p -t intel_hex extended-min.min64x4
 ```
 
-The resulting Intel Hex output is then transfered to the Minimal 64x4 via the UART connection using its `receive` command. Once downloaded to the Minimal 64x4, pay attention to the start and stop address of the downloaded Intel Hex, then save the code to a program file on the Minimal 64x4 with the command `save XXXX YYYYY xmin`, where `XXXX` is the start address (typically hex 1000) and `YYYY` is the stop adress (something around hex 3B00). 
+The resulting Intel Hex output is then transferred to the Minimal 64x4 via the UART connection using its `receive` command. Once downloaded to the Minimal 64x4, pay attention to the start and stop address of the downloaded Intel Hex, then save the code to a program file on the Minimal 64x4 with the command `save XXXX YYYYY xmin`, where `XXXX` is the start address (typically hex 1000) and `YYYY` is the stop address (something around hex 3B00). 
 
-Alternatively, the Intel Hex compilation of most recent release of Extend Min from the releases in this repository on Github. Note that the `acc` variant is intended to be used with the [multiplier accelerator card](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier).
+Alternatively, use the Intel Hex compilation of the most recent release of Extended Min from the releases in this repository on GitHub. Note that the `acc` variant is intended to be used with the [multiplier accelerator card](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier).
 
 ## Skills
 
@@ -50,7 +50,7 @@ skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4
 skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4 -- -D USE_ACCELERATOR
 ```
 
-### Using the optimize-size skill
+### Using the `optimize-size` skill
 
 Read:
 
@@ -71,13 +71,13 @@ The optimize-size skill depends only on the repo-local compile skill and the sta
 
 
 ## File Extension Convention
-Any file ending in `*.min` should be runable by both Carsten's original Min and this Extended Min, which one exception: of the Min code performs a type change operation (e.g., assign an `int` value to a `char` type), Extended Min will throw an error given its new gaurds against silent value truncation. If that value truncation is omething you do want, introduce the explicite cast operation to the code, and make the file an `*.xmin` type as the orignal Min does not support type casting.
+Any file ending in `*.min` should be runnable by both Carsten's original Min and this Extended Min, with one exception: if the Min code performs a type change operation (e.g., assign an `int` value to a `char` type), Extended Min will throw an error given its new guards against silent value truncation. If that value truncation is something you do want, introduce the explicit cast operation to the code, and make the file an `*.xmin` type as the original Min does not support type casting.
 
-Any file ending in `*.xmin` is intende to be run in Extended Min only.
+Any file ending in `*.xmin` is intended to be run in Extended Min only.
 
 # Extended Min language documentation
 
-This section is for writing Extended Min programs with fil extensions of `*.xmin`. For interpreter internals and the full grammar, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+This section is for writing Extended Min programs with file extensions of `*.xmin`. For interpreter internals and the full grammar, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## Program structure
 
@@ -392,4 +392,3 @@ print("\n")
 print(value)
 print("\n")
 ```
-
