@@ -1,0 +1,117 @@
+use "timerlib.min"
+
+# -----------------------------------------------
+# Benchmark compatible with both original Min
+# and Extended Min. Uses only int/char types,
+# no casts, no long, no signed-constant +=.
+# -----------------------------------------------
+# REQUIRES - Clock timer card and timerlib.min
+# https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/timer
+# -----------------------------------------------
+
+def bubbleSort(char &arr, int len):
+  int i = 0
+  while i < len - 1:
+    int j = 0
+    int top = len - 1 - i
+    while j < top:
+      if arr[j] > arr[j + 1]:
+        char t = arr[j]
+        arr[j] = arr[j + 1]
+        arr[j + 1] = t
+      j += 1
+    i += 1
+
+def linearSearch(char &arr, int len, int target):
+  int i = 0
+  while i < len:
+    if arr[i] == target:
+      return i
+    i += 1
+  return 0
+
+def fib(int n):
+  int a = 0
+  int b = 1
+  int i = 0
+  while i < n:
+    int tmp = a + b
+    a = b
+    b = tmp
+    i += 1
+  return a
+
+def sumSquares(int n):
+  int sum = 0
+  int i = 1
+  while i <= n:
+    sum = sum + i * i
+    i += 1
+  return sum
+
+def gcd(int a, int b):
+  while b != 0:
+    int t = b
+    b = a - a / b * b
+    a = t
+  return a
+
+# --- main benchmark ---
+
+print("BENCH:")
+
+timerReset()
+
+int round = 0
+int check = 0
+
+while round < 10:
+  # 1. Sort a scrambled 20-char array
+  char buf = buf[|20]
+  buf = "TNKFBQMJGCPLIOEHADRS"
+  bubbleSort(buf, 20)
+
+  # 2. Search sorted array
+  check = check + linearSearch(buf, 20, 65)
+  check = check + linearSearch(buf, 20, 84)
+  check = check + linearSearch(buf, 20, 77)
+
+  # 3. Iterative fibonacci
+  check = check + fib(12)
+
+  # 4. Sum of squares
+  check = check + sumSquares(30)
+
+  # 5. GCD computation loop
+  int g = 0
+  int m = 100
+  while m < 200:
+    g = g + gcd(m, 63)
+    m += 1
+
+  check = check + g
+
+  # 6. Array fill and sum
+  char data = data[|20]
+  int idx = 0
+  while idx < 20:
+    data[idx] = idx * 3 + 7
+    idx += 1
+  int total = 0
+  idx = 0
+  while idx < 20:
+    total = total + data[idx]
+    idx += 1
+  check = check + total
+
+  print(".")
+  round += 1
+
+timerLatch()
+
+print("\nDONE\n")
+print("check = ")
+print(check)
+print("\ntime = ")
+timerValue()
+print("\n")

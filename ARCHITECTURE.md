@@ -41,9 +41,10 @@ From comments and constants in this file:
 - `0xed00`: page-aligned source-vector guard (`endsrc`)
 - `0xff00..0xffff`: CPU fast page + hardware stack (managed by CPU push/pop and subroutine calls)
 
-Zero page (`MIN_ZERO_PAGE`, `0x0020..0x007f`) holds nearly all hot interpreter state (`z_pc`, `z_sp`, `z_type`, `z_cnt`, pointers, math registers), plus:
+Zero page (`MIN_ZERO_PAGE`, `0x0010..0x007f`) holds nearly all hot interpreter state (`z_pc`, `z_sp`, `z_type`, `z_cnt`, pointers, math registers), plus:
 - `Factor` slice temporaries (`slice_start`, `slice_count`, `slice_max`)
-- a tiny `getVar` hot cache (`z_vcache_*`)
+- a 2-entry `getVar` hot cache (`z_vcache_*`, `z_vcache2_*`) with shift-down eviction
+- a 1-entry `getCall` hot cache (`z_ccache_*`) keyed on `(call_id, z_nextcall)`
 - function-call parser cursors (`z_fun_argpc`, `z_fun_parpc`)
 
 OS zero-page interface block (`ZERO_PAGE_OS`) uses the pointer layout:
@@ -257,8 +258,8 @@ Call:
   - copies returned payload back to caller stack when `return` is used
 
 Lookup:
-- `getCall` searches newest-first with linear scan.
-- `getVar` first checks a 1-entry cache keyed by `(var_id, z_sub, z_nextvar)`; on miss it falls back to newest-first linear scan.
+- `getCall` first checks a 1-entry cache keyed by `(call_id, z_nextcall)`; on miss it falls back to newest-first linear scan and refreshes the cache.
+- `getVar` first checks a 2-entry cache keyed by `(var_id, z_sub, z_nextvar)` per slot; on miss it falls back to newest-first linear scan, shifts slot 0 to slot 1, and stores the new hit in slot 0.
 - Variable shadowing works across scopes; same-scope variable redeclaration is rejected (`Duplicate variable name`).
 
 ## Variable Semantics
@@ -273,7 +274,7 @@ Assignment (`VarAssignment`):
 - full assignment (`=`)
 - indexed assignment with bounds checks
 - whole-value assignment with rhs-count bounds checks against variable capacity
-- optimized `+=` / `-=` for constant RHS token form
+- optimized `+=` / `-=` for constant RHS token form (supports `char`, `int`, and `long` types)
 
 Reference and absolute-address interplay:
 - `&var` and `&var[...]` produce pointers and set reference metadata (`z_refset`, `z_refcnt`)
@@ -300,7 +301,7 @@ Notable diagnostics now include:
 ## Design Notes and Practical Limits
 - Core runtime declaration types in this file are `char`, `int`, and `long`.
 - `string`-alias constant declarations are tokenizer-only sugar and do not add a runtime type tag.
-- Dictionaries are fixed-size memory regions; `getCall` is linear scan, while `getVar` adds a tiny hot cache in front of linear scan.
+- Dictionaries are fixed-size memory regions; both `getCall` (1-entry) and `getVar` (2-entry) use hot caches in front of linear scan.
 - Runtime memory checks guard expression-stack overflow and index range errors, and `FunctionCall` guards hardware call-stack depth.
 - Import loading is source-text driven (`use "..."`) before interpretation.
 - The interpreter is compact and fast because tokenization removes most string parsing from runtime.
@@ -308,7 +309,7 @@ Notable diagnostics now include:
 - `serial(...)` behaves identically to `print(...)` but routes all output to the UART via `OUT`/`_SerialWait` instead of screen output.
 - `output(...)` behaves identically to `print(...)` but sends output to both the screen and the UART.
 - `call <const_addr>` requires a tokenized integer constant address, making external API calls explicit and low-overhead.
-- Multiple function groups are page-aligned with `.align` so fast-branch instructions can remain valid.
+- Hot loop routines (`SimpleLine`, `Block`, `FastBlock`, `WhileStmt`) are relocated near the end of the code with `.align` so `SimpleLine`'s dispatch loop fits entirely on one 256-byte page, keeping all fast-branch instructions valid.
 
 ## Min Language EBNF Description
 The following EBNF is a useful baseline reference for Min syntax.
@@ -360,8 +361,8 @@ statement   = { NEWLINE }, EQIND, simple-line
 simple-line = simple-stmt, [';'], { simple-stmt, [';'] }
 simple-stmt = type, identifier, ['@', expr ], ['=', comp-expr ]           (* variable definition *)
             | identifier, ['[', expr, ']'], '=', comp-expr                (* assignment *)
-            | identifier, ['[', expr, ']'], '+=', signed-constant         (* fast add *)
-            | identifier, ['[', expr, ']'], '-=', signed-constant         (* fast sub *)
+            | identifier, ['[', expr, ']'], '+=', signed-constant         (* fast add; char, int, and long *)
+            | identifier, ['[', expr, ']'], '-=', signed-constant         (* fast sub; char, int, and long *)
             | identifier, '(', { comp-expr, [','] }, ')'                  (* function call *)
             | 'return', [ comp-expr ]
             | 'break'
@@ -394,7 +395,7 @@ The `extended-min.min64x4` implementation differs from the baseline EBNF in a fe
 - `key()` is not a core keyword in this interpreter file; keyboard/library behavior is expected via imported Min libraries and/or `call` integration.
 - Hex constants require lowercase `0x` prefix and accept uppercase or lowercase hex digits.
 - Constants behavior is tokenizer-time substitution, so declarations do not exist as runtime statements.
-- Long arithmetic now covers add/sub/mul/div/bitwise/shift/compare operations.
+- Long arithmetic now covers add/sub/mul/div/bitwise/shift/compare operations, plus `+=` and `-=` fast paths.
 - Constants are declaration-order dependent (no forward references) because tokenization is single-pass.
 - Function-local constants use function scope (not block scope), with local-first name resolution then global fallback.
 - `string` declarations are tokenizer-only aliases for char-string literal token payload and do not exist in runtime type dispatch.
