@@ -281,7 +281,7 @@ buf[i] = 65
 Notes:
 
 - normal indexed and whole-value assignment work with `char`, `int`, and `long`
-- the current fast `+=` / `-=` optimization is implemented for `char` and `int`, but not yet for `long`
+- the current fast `+=` / `-=` optimization is implemented for `char`, `int`, and `long`
 
 ## Control flow
 
