@@ -15,7 +15,7 @@ Find the best layout and opcode form mix that:
   - `-D USE_ACCELERATOR`
 - minimizes bytecode footprint (primary)
 - maximizes local/fast branch/jump usage (secondary)
-- enforces a safety rule: no `F*` opcode may be placed at an `xxFF` address
+- relies on BespokeASM and the Minimal 64x4 instruction-set config to reject invalid fast/local branches
 - avoids `.align` unless an explicit alignment-budget phase is requested
 
 ## Dependency
@@ -48,7 +48,6 @@ All scripts live in `scripts/`:
 - `optimize_dual.sh`
   - core top-down convergence algorithm (all-fast, then revert failing lines)
   - validates both default and accelerator builds each iteration
-  - rejects any candidate that places `F*` opcodes at `xxFF` addresses in either build
 - `collect_metrics.sh`
   - reports `fast/long/align` counts and score tuple
   - extracts `g_stop` from both pretty listings

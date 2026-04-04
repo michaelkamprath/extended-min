@@ -14,8 +14,6 @@ Algorithm:
   - Compile both builds.
   - If either build fails on page-MSB constraints, parse first error line
     and revert only that source line back to long form (B*/JPA).
-  - If either build places an F* instruction at an xxFF address, revert that
-    source line back to long form (B*/JPA) to avoid operand fetch crossing pages.
   - Repeat until both builds compile.
 
 Writes pretty outputs to:
@@ -50,20 +48,6 @@ noacc_out="${base}.noacc.out"
 acc_out="${base}.acc.out"
 noacc_pretty="${base}.noacc.pretty"
 acc_pretty="${base}.acc.pretty"
-
-first_fast_ff_line() {
-  local pretty="$1"
-  perl -ne '
-    if (/^\s*(\d+)\s+\|\s+([0-9a-fA-F]{4})\s+\|.*?\|\s*(.*?)\s*\|/) {
-      my ($src_line, $addr, $ins) = ($1, lc($2), $3);
-      if (substr($addr, 2, 2) eq "ff" &&
-          $ins =~ /\b(FPA|FEQ|FNE|FCC|FCS|FGT|FLE|FPL|FMI)\b/) {
-        print "$src_line\n";
-        exit 0;
-      }
-    }
-  ' "$pretty"
-}
 
 perl -i -pe '
   s/\bJPA\b/FPA/g;
@@ -131,30 +115,6 @@ while :; do
   fi
 
   if [[ $noacc_ok -eq 1 && $acc_ok -eq 1 ]]; then
-    noacc_ff_line="$(first_fast_ff_line "$noacc_pretty" || true)"
-    acc_ff_line="$(first_fast_ff_line "$acc_pretty" || true)"
-
-    if [[ -n "$noacc_ff_line" || -n "$acc_ff_line" ]]; then
-      if [[ -n "$noacc_ff_line" && -n "$acc_ff_line" ]]; then
-        if (( noacc_ff_line <= acc_ff_line )); then
-          line="$noacc_ff_line"
-          mode="noacc-ff"
-        else
-          line="$acc_ff_line"
-          mode="acc-ff"
-        fi
-      elif [[ -n "$noacc_ff_line" ]]; then
-        line="$noacc_ff_line"
-        mode="noacc-ff"
-      else
-        line="$acc_ff_line"
-        mode="acc-ff"
-      fi
-
-      revert_line_to_long "$line" "$mode"
-      continue
-    fi
-
     break
   fi
 
