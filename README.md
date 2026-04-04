@@ -18,7 +18,7 @@ bespokeasm compile -c /path/to/slu4-minimal-64x4.yaml -n -p -t intel_hex extende
 
 The resulting Intel Hex output is then transferred to the Minimal 64x4 via the UART connection using its `receive` command. Once downloaded to the Minimal 64x4, pay attention to the start and stop address of the downloaded Intel Hex, then save the code to a program file on the Minimal 64x4 with the command `save XXXX YYYYY xmin`, where `XXXX` is the start address (typically hex 1000) and `YYYY` is the stop address (something around hex 3B00). 
 
-Alternatively, use the Intel Hex compilation of the most recent release of Extended Min from the releases in this repository on GitHub. Note that the `acc` variant is intended to be used with the [multiplier accelerator card](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier).
+Alternatively, use the Intel Hex compilation of [the most recent release of Extended Min](https://github.com/michaelkamprath/extended-min/releases) from the releases in this repository on GitHub. Note that the `acc` variant is intended to be used with the [multiplier accelerator card](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier).
 
 ## Skills
 
