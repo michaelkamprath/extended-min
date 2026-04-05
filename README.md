@@ -6,7 +6,8 @@ The primary enhancements to Min in this extended version include:
 - Additions of constants to the language to avoid the use of "magic numbers" or "magic strings" (new `string` constant type).
 - Support for the `long` 32-bit signed integer type.
 - Introduction of explicit type casting to avoid silent value truncations.
-- Ability print to not only the screen, but also the UART connection.
+- Ability to print to not only the screen, but also the UART connection.
+- Sized buffer declarations (`char buf[64]`, `int table[N]`) with optional comma-separated initializers.
 
 
 ## Installing Extended Min
@@ -182,15 +183,74 @@ char io @ 0x00ff
 io = 1
 ```
 
-Allocate array/string-like storage by slicing the variable against itself:
+### Sized buffers
+
+Declare a buffer with a fixed capacity using `[N]`:
+
+```xmin
+char buf[64]
+int table[10]
+```
+
+The size expression `N` is evaluated at runtime, so variables are allowed:
+
+```xmin
+int sz = 20
+char data[sz]
+```
+
+Sized buffers can be combined with an initializer. The buffer capacity is `N`; the initial element count comes from the initializer:
+
+```xmin
+char header[16] = 0x44, 0x2a, 0x0e
+int lookup[8] = 10, 20, 30
+```
+
+Writing beyond the initial count but within the declared capacity is valid:
+
+```xmin
+char buf[64] = "HI"
+buf[10] = 0x41
+```
+
+A "Buffer overflow" error is raised if the initializer has more elements than the declared size.
+
+Sized buffers also work with fixed-address bindings:
+
+```xmin
+char mmio[8] @ 0xFE00
+```
+
+### Comma-separated initializers
+
+Commas may be used as element separators in any variable initializer, as an alternative to the `_` concatenation operator:
+
+```xmin
+char rgb = 0x10, 0x20, 0x30
+int coords = 100, 200, 300
+char msg = "HEL", "LO"
+```
+
+Commas and `_` may be mixed freely:
+
+```xmin
+int data = 1 _ 2, 3 _ 4
+```
+
+In `print()`, `serial()`, `output()`, and function call argument lists, commas remain optional separators between distinct arguments (not concatenation).
+
+### Legacy array allocation
+
+Array-like storage can also be allocated by slicing the variable against itself (the original Min idiom):
 
 ```xmin
 char text = text[|16]
 int nums = nums[|10]
-long bigs = bigs[|4]
 ```
 
-Indexing and slicing:
+The `[N]` sized buffer syntax above is the preferred form for new code.
+
+### Indexing and slicing
 
 ```xmin
 text[0] = "A"

@@ -33,11 +33,11 @@ From comments and constants in this file:
 
 - `0x1000..0x3f7f`: interpreter code + global state
 - `0x3f80..0x3fff`: long-lhs spill stack
-- `0x8000..0xd9ff`: source text (`file`) with tokenized stream appended after loaded text
-- `0xda00..0xdfff`: expression/variable runtime data stack (`firstsp..endsp`)
-- `0xe000..0xe2ff`: call dictionary (`firstcall`, 3-byte entries)
-- `0xe300..0xebff`: variable dictionary (`firstvar`, 9-byte entries)
-- `0xec00..0xecff`: source-vector page (`firstsrc`), used for up to 5 fixed 22-byte entries
+- `0x8000..0xcfff`: source text (`file`) with tokenized stream appended after loaded text (20 KB)
+- `0xd000..0xdfff`: shared tokenizer items dictionary / runtime data stack (4 KB). During tokenization, `newitems_ram` grows from `0xd000` upward with new variable/call name entries. At runtime, `firstsp` starts at `0xd000` and the full 4 KB is used as the expression/variable data stack. The two uses never overlap because tokenization completes before runtime begins.
+- `0xe000..0xe2ff`: call dictionary (`firstcall`, 3-byte entries, up to 256)
+- `0xe300..0xebff`: variable dictionary (`firstvar`, 9-byte entries, up to 256)
+- `0xec00..0xecff`: source-vector page (`firstsrc`), used for up to 11 fixed 22-byte entries
 - `0xed00`: page-aligned source-vector guard (`endsrc`)
 - `0xff00..0xffff`: CPU fast page + hardware stack (managed by CPU push/pop and subroutine calls)
 
@@ -63,11 +63,11 @@ Variable dictionary entry (9 bytes, newest-first lookup):
 1. `var_id`
 2. `sub` (scope marker; `0xff` used for global)
 3. `type` (`1=char`, `2=int`, `4=long`)
-4. `cnt_lsb`
+4. `cnt_lsb` — current element count
 5. `cnt_msb`
-6. `ptr_lsb`
+6. `ptr_lsb` — pointer to data (stack address or absolute address for `@` vars)
 7. `ptr_msb`
-8. `max_lsb`
+8. `max_lsb` — buffer capacity (`0xffff` = unsized; from `[N]` if specified; else `= cnt`)
 9. `max_msb`
 
 Source vector entry (22 bytes):
@@ -88,14 +88,14 @@ Expression result contract (global state):
 
 `LoadFileTo` uses `_FindFile` + bank-aware `OS_FlashA` to copy file bytes to `z_PtrD`.
 On successful load, it explicitly writes a trailing `\0` byte in RAM before returning.
-The loader now treats `firstsp` (`0xda00`) as the exclusive source/token upper bound and aborts with `Out of RAM` if imported source would cross into the runtime stack.
+The loader now treats `source_top` (`0xd000`) as the exclusive source/token upper bound and aborts with `Out of RAM` if imported source would cross into the shared tokenizer/runtime area.
 
 Import resolution:
 - Loader performs a raw scan for `use "..."` and appends each file into source memory.
 - Max imported-source tracking is implemented via source-vector pointer progression.
 - `Tokenizer` later skips `use` lines so imports affect loading, not runtime statements.
 - Tokenization walks the source-vector from newest to oldest entry, so imported modules are tokenized before their importers.
-- Tokenizer output is guarded against `firstsp` / `source_top` to avoid source/token stream overwrite of the runtime stack.
+- Tokenizer output is guarded against `source_top` to avoid source/token stream overwrite of the shared tokenizer items / runtime stack area.
 
 ## Tokenizer Architecture
 `Tokenizer` is a single-pass compiler from source text to compact tokens.
@@ -129,7 +129,10 @@ Tokenizer constraints:
 - identifier length max is 13 characters
 - indentation must be even-space aligned and <= 30 levels
 - var and call IDs are capped below `0xe0` to avoid collision with indent token range
-- commas, semicolons, and colons are treated as optional separators and omitted from token output
+- semicolons and colons are treated as optional separators and omitted from token output
+- commas pass through to the token stream as literal bytes (used as element separators in variable initializers; skipped as argument separators in function calls, `def` parameter lists, and `print`/`serial`/`output`)
+- the tokenizer items dictionary for new identifiers (variable/call names) is stored in the shared `newitems_ram` area (`0xd000+`), separate from the built-in keyword dictionary in interpreter code; a boundary redirect in the scan loop bridges the two regions
+- new identifier entries are bounds-checked against `endsp` to prevent overflow
 
 Typed-constant rules (tokenizer-time):
 - Declaration forms:
@@ -359,7 +362,7 @@ statement   = { NEWLINE }, EQIND, simple-line
             | { NEWLINE }, EQIND, const-decl
             | { NEWLINE }, NOIND, 'use', '"', { character }, '"'          (* import another file*)
 simple-line = simple-stmt, [';'], { simple-stmt, [';'] }
-simple-stmt = type, identifier, ['@', expr ], ['=', comp-expr ]           (* variable definition *)
+simple-stmt = type, identifier, ['[', expr, ']'], ['@', expr ], ['=', init-expr ]  (* variable definition *)
             | identifier, ['[', expr, ']'], '=', comp-expr                (* assignment *)
             | identifier, ['[', expr, ']'], '+=', signed-constant         (* fast add; char, int, and long *)
             | identifier, ['[', expr, ']'], '-=', signed-constant         (* fast sub; char, int, and long *)
@@ -385,6 +388,7 @@ base-expr   = ['-'], term, { add-op, term }
 rel-expr    = base-expr, { rel-op, base-expr }
 expr        = ['not'], rel-expr, { logic-op, rel-expr }
 comp-expr   = expr, {'_', expr }                                          (* compound expressions of same data type *)
+init-expr   = comp-expr, {',', comp-expr }                                (* comma-separated initializer list *)
 ```
 
 ## EBNF vs This Interpreter
@@ -400,3 +404,5 @@ The `extended-min.min64x4` implementation differs from the baseline EBNF in a fe
 - Function-local constants use function scope (not block scope), with local-first name resolution then global fallback.
 - `string` declarations are tokenizer-only aliases for char-string literal token payload and do not exist in runtime type dispatch.
 - Cast syntax is `char(expr)` (function-style), not C-style `(char)expr`, and not alternate assignment operators like `==` or `@=`.
+- Variable declarations support an optional `[N]` buffer size between the identifier and `@`/`=`. `char buf[64]` allocates an uninitialized 64-element buffer with `cnt=N, max=N`. `char buf[64] = 1, 2, 3` initializes 3 elements in a 64-capacity buffer (`cnt=3, max=64`). Buffer size is evaluated at runtime, so `char buf[n]` with a variable size is valid. A "Buffer overflow" error is raised if the initializer count exceeds the declared size. The `[N]` syntax also works with absolute-address bindings: `char mmio[8] @ 0xFE00`.
+- Commas in variable initializers act as element separators (equivalent to `_` concatenation). `char x = 1, 2, 3` is identical to `char x = 1 _ 2 _ 3`. In `print()`, `serial()`, `output()`, and function call argument lists, commas remain optional separators between distinct arguments (not concatenation).

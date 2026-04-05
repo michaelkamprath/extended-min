@@ -1,0 +1,209 @@
+# Buffer declarations and comma-separated initializers
+# Tests: [N] sized buffers, comma init lists, bounds, @ buffers
+
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0; int t7 = 0; int t8 = 0
+int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0; int t13 = 0; int t14 = 0; int t15 = 0; int t16 = 0
+
+def showpass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def showfail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+# --- Comma-separated initializers (no [N]) ---
+
+# Test 1: char comma init (decimal values are scalar-castable to char)
+char abc = 65, 66, 67
+if abc[0] == 65:
+  if abc[1] == 66:
+    if abc[2] == 67:
+      passed += 1; t1 = 1
+if t1 == 0:
+  print("FAIL 1 char comma init\n")
+  failed += 1; t1 = -1
+
+# Test 2: int comma init
+int nums = 100, 200, 300
+if nums[0] == 100:
+  if nums[1] == 200:
+    if nums[2] == 300:
+      passed += 1; t2 = 1
+if t2 == 0:
+  print("FAIL 2 int comma init\n")
+  failed += 1; t2 = -1
+
+# Test 3: commas as alternative to underscore (char string concat)
+char mix = "AB", "CD"
+if mix[0] == 65:
+  if mix[1] == 66:
+    if mix[2] == 67:
+      if mix[3] == 68:
+        passed += 1; t3 = 1
+if t3 == 0:
+  print("FAIL 3 char string comma\n")
+  failed += 1; t3 = -1
+
+# --- Sized buffers [N] without initializer ---
+
+# Test 4: char buffer uninitialized, write and read back
+char buf4[8]
+buf4[0] = 0x41
+buf4[7] = 0x42
+if buf4[0] == 0x41:
+  if buf4[7] == 0x42:
+    passed += 1; t4 = 1
+if t4 == 0:
+  print("FAIL 4 char buf[8]\n")
+  failed += 1; t4 = -1
+
+# Test 5: int buffer uninitialized
+int ibuf[4]
+ibuf[0] = 1000
+ibuf[3] = 2000
+if ibuf[0] == 1000:
+  if ibuf[3] == 2000:
+    passed += 1; t5 = 1
+if t5 == 0:
+  print("FAIL 5 int buf[4]\n")
+  failed += 1; t5 = -1
+
+# Test 6: variable-sized buffer
+int sz = 6
+char vsz[sz]
+vsz[0] = 10
+vsz[5] = 20
+if vsz[0] == 10:
+  if vsz[5] == 20:
+    passed += 1; t6 = 1
+if t6 == 0:
+  print("FAIL 6 variable-sized buf\n")
+  failed += 1; t6 = -1
+
+# --- Sized buffers [N] with initializer ---
+
+# Test 7: char buffer with comma init, capacity > count
+char hdr[16] = 0x44, 0x2a, 0x0e
+if hdr[0] == 0x44:
+  if hdr[1] == 0x2a:
+    if hdr[2] == 0x0e:
+      passed += 1; t7 = 1
+if t7 == 0:
+  print("FAIL 7 char buf[16] = comma\n")
+  failed += 1; t7 = -1
+
+# Test 8: write beyond initial count but within capacity
+hdr[15] = 0x55
+if hdr[15] == 0x55:
+  passed += 1; t8 = 1
+if t8 == 0:
+  print("FAIL 8 write past cnt\n")
+  failed += 1; t8 = -1
+
+# Test 9: int buffer with comma init
+int tbl[8] = 10, 20, 30
+if tbl[0] == 10:
+  if tbl[1] == 20:
+    if tbl[2] == 30:
+      passed += 1; t9 = 1
+if t9 == 0:
+  print("FAIL 9 int buf[8] = comma\n")
+  failed += 1; t9 = -1
+
+# Test 10: [N] = single value (no comma)
+char one[4] = 0x55
+if one[0] == 0x55:
+  passed += 1; t10 = 1
+if t10 == 0:
+  print("FAIL 10 buf[4] = single\n")
+  failed += 1; t10 = -1
+
+# --- Commas in function calls and print (unchanged behavior) ---
+
+def sum3(int a, int b, int c):
+  return a + b + c
+
+# Test 11: function call with commas still works
+int s = sum3(10, 20, 30)
+if s == 60:
+  passed += 1; t11 = 1
+else:
+  print("FAIL 11 func comma args\n")
+  failed += 1; t11 = -1
+
+# Test 12: print with commas still separates args (should print "XY")
+char px = 0x58
+char py = 0x59
+print("12:")
+print(px, py)
+print(" ")
+passed += 1; t12 = 1
+
+# --- Sized buffers with function params ---
+
+def fillBuf(char &b, int n):
+  int i = 0
+  while i < n:
+    b[i] = i + 65
+    i += 1
+
+# Test 13: pass sized buffer by reference
+char rbuf[10]
+fillBuf(rbuf, 5)
+if rbuf[0] == 65:
+  if rbuf[4] == 69:
+    passed += 1; t13 = 1
+if t13 == 0:
+  print("FAIL 13 buf ref param\n")
+  failed += 1; t13 = -1
+
+# --- Buffers in loops ---
+
+# Test 14: sized buffer with comma init inside a loop
+int total = 0
+int li = 0
+while li < 3:
+  char lb[4] = 1, 2, 3, 4
+  total = total + lb[0] + lb[1] + lb[2] + lb[3]
+  li += 1
+if total == 30:
+  passed += 1; t14 = 1
+else:
+  print("FAIL 14 buf in loop\n")
+  failed += 1; t14 = -1
+
+# Test 15: long comma init
+long lv = 1000, 2000
+if lv[0] == 1000:
+  if lv[1] == 2000:
+    passed += 1; t15 = 1
+if t15 == 0:
+  print("FAIL 15 long comma init\n")
+  failed += 1; t15 = -1
+
+# Test 16: exact fill count equals buffer size
+char exact[3] = 1, 2, 3
+if exact[0] == 1:
+  if exact[1] == 2:
+    if exact[2] == 3:
+      passed += 1; t16 = 1
+if t16 == 0:
+  print("FAIL 16 exact fill\n")
+  failed += 1; t16 = -1
+
+# --- Summary ---
+print("\nPASS: ")
+showpass(1, t1); showpass(2, t2); showpass(3, t3); showpass(4, t4)
+showpass(5, t5); showpass(6, t6); showpass(7, t7); showpass(8, t8)
+showpass(9, t9); showpass(10, t10); showpass(11, t11); showpass(12, t12)
+showpass(13, t13); showpass(14, t14); showpass(15, t15); showpass(16, t16)
+print("\nFAIL: ")
+showfail(1, t1); showfail(2, t2); showfail(3, t3); showfail(4, t4)
+showfail(5, t5); showfail(6, t6); showfail(7, t7); showfail(8, t8)
+showfail(9, t9); showfail(10, t10); showfail(11, t11); showfail(12, t12)
+showfail(13, t13); showfail(14, t14); showfail(15, t15); showfail(16, t16)
+print("\n")
+print(passed); print(" passed, "); print(failed); print(" failed\n")

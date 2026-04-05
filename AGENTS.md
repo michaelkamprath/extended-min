@@ -128,8 +128,8 @@ At time of writing:
 
 - `MIN_INTERPRETER`: `0x1000..0x3f7f`
 - `MIN_LHS_SPILL`: `0x3f80..0x3fff`
-- source + token stream: `0x8000..0xd9ff`
-- runtime stack: `0xda00..0xdfff`
+- source + token stream: `0x8000..0xcfff`
+- tokenizer items dict / runtime stack (shared): `0xd000..0xdfff`
 
 Rules:
 
