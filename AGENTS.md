@@ -208,6 +208,9 @@ Available local skills:
 - `optimize-size`
   - path: `skills/optimize-size/SKILL.md`
   - use when recovering branch/jump size and fast-branch locality after layout drift
+- `lint-comments`
+  - path: `skills/lint-comments/SKILL.md`
+  - use when aligning inline comment columns for readability after editing
 
 How to tell Codex about these skills in practice:
 
