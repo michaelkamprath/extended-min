@@ -8,6 +8,8 @@ The primary enhancements to Min in this extended version include:
 - Introduction of explicit type casting to avoid silent value truncations.
 - Ability to print to not only the screen, but also the UART connection.
 - Sized buffer declarations (`char buf[64]`, `int table[N]`) with optional comma-separated initializers.
+- Built-in query functions `len()` and `sizeof()` for inspecting variable element counts and buffer capacity.
+- Dynamic list operations `append()`, `pop()`, and `empty()` for using sized buffers as lists.
 
 
 ## Installing Extended Min
@@ -272,6 +274,56 @@ var[start|end]
 ```
 
 where `end` is exclusive.
+
+### Built-in query functions
+
+`len(var)` returns the current element count of a variable:
+
+```xmin
+char msg = "Hello"
+print(len(msg))             # prints 5
+
+char buf[64] = 1, 2, 3
+print(len(buf))             # prints 3 (initialized count)
+```
+
+`sizeof(var)` returns the buffer capacity (allocated size) of a variable:
+
+```xmin
+char buf[64] = 1, 2, 3
+print(sizeof(buf))          # prints 64 (capacity)
+print(len(buf))             # prints 3 (current count)
+```
+
+A **sized** variable is one declared with `[N]` (e.g., `char buf[64]`). The capacity (`sizeof`) is the declared size `N`, which may be larger than the current element count (`len`). An **unsized** variable has no `[N]` (e.g., `char msg = "Hello"` or `int x = 42`). Its capacity equals its element count, so `sizeof(var) == len(var)`.
+
+### Dynamic list operations
+
+Sized buffers can be used as dynamic lists with `append`, `pop`, and `empty`:
+
+```xmin
+int stack[32]
+empty(stack)
+
+append(stack, 10)
+append(stack, 20)
+append(stack, 30)
+print(len(stack))           # prints 3
+
+int top = pop(stack)
+print(top)                  # prints 30
+print(len(stack))           # prints 2
+
+empty(stack)
+print(len(stack))           # prints 0
+print(sizeof(stack))        # prints 32 (capacity unchanged)
+```
+
+- `append(var, expr)` — writes the value at position `len(var)` and increments the count. Raises "Buffer overflow" if the buffer is full.
+- `pop(var)` — returns the last element and decrements the count. Raises "Buffer empty" if the count is zero.
+- `empty(var)` — sets the count to zero without changing the capacity or stored data.
+
+Indexed assignment (`var[i] = x`) does **not** update the element count. Only `append`, `pop`, `empty`, and whole-value assignment (`var = expr`) modify it.
 
 ## Expressions and operators
 

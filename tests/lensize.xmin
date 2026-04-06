@@ -1,0 +1,119 @@
+# Tests for len() and sizeof() built-in functions
+
+int passed = 0
+int failed = 0
+
+# Test 1: len of string
+char msg = "Hello"
+if len(msg) == 5:
+  passed += 1
+  print("1 ")
+else:
+  print("FAIL 1 len string\n")
+  failed += 1
+
+# Test 2: len of comma-init char
+char abc = 65, 66, 67
+if len(abc) == 3:
+  passed += 1
+  print("2 ")
+else:
+  print("FAIL 2 len comma\n")
+  failed += 1
+
+# Test 3: len of int array
+int nums = 10, 20, 30, 40
+if len(nums) == 4:
+  passed += 1
+  print("3 ")
+else:
+  print("FAIL 3 len int\n")
+  failed += 1
+
+# Test 4: len of scalar
+long x = 42
+if len(x) == 1:
+  passed += 1
+  print("4 ")
+else:
+  print("FAIL 4 len scalar\n")
+  failed += 1
+
+# Test 5: sizeof unsized var (should equal len)
+char s = "Hi"
+if sizeof(s) == len(s):
+  passed += 1
+  print("5 ")
+else:
+  print("FAIL 5 sizeof unsized\n")
+  failed += 1
+
+# Test 6: sizeof sized buffer
+char buf[64] = 1, 2, 3
+if sizeof(buf) == 64:
+  passed += 1
+  print("6 ")
+else:
+  print("FAIL 6 sizeof sized\n")
+  failed += 1
+
+# Test 7: len of sized buffer (init count, not capacity)
+if len(buf) == 3:
+  passed += 1
+  print("7 ")
+else:
+  print("FAIL 7 len sized\n")
+  failed += 1
+
+# Test 8: sizeof int buffer
+int tbl[10] = 1, 2
+if sizeof(tbl) == 10:
+  passed += 1
+  print("8 ")
+else:
+  print("FAIL 8 sizeof int buf\n")
+  failed += 1
+
+# Test 9: len after reassignment
+char data[32] = "ABCDE"
+data = "XY"
+if len(data) == 2:
+  passed += 1
+  print("9 ")
+else:
+  print("FAIL 9 len after reassign\n")
+  failed += 1
+
+# Test 10: sizeof unchanged after reassignment
+if sizeof(data) == 32:
+  passed += 1
+  print("10 ")
+else:
+  print("FAIL 10 sizeof after reassign\n")
+  failed += 1
+
+# Test 11: len in expression
+char word = "Test"
+int doubled = len(word) * 2
+if doubled == 8:
+  passed += 1
+  print("11 ")
+else:
+  print("FAIL 11 len in expr\n")
+  failed += 1
+
+# Test 12: len of legacy self-slice allocation
+char legacy = legacy[|20]
+legacy = "MinLang"
+if len(legacy) == 7:
+  passed += 1
+  print("12 ")
+else:
+  print("FAIL 12 len legacy\n")
+  failed += 1
+
+print("\n")
+print(passed)
+print(" passed, ")
+print(failed)
+print(" failed\n")

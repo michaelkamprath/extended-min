@@ -1,0 +1,42 @@
+# Minimal append/empty/pop/len debug test
+char buf[16]
+print("after decl: len=")
+print(len(buf))
+print(" sizeof=")
+print(sizeof(buf))
+print("\n")
+
+empty(buf)
+print("after empty: len=")
+print(len(buf))
+print("\n")
+
+append(buf, 65)
+print("after append 65: len=")
+print(len(buf))
+print("\n")
+
+append(buf, 66)
+print("after append 66: len=")
+print(len(buf))
+print("\n")
+
+print("buf[0]=")
+print(buf[0])
+print(" buf[1]=")
+print(buf[1])
+print("\n")
+
+char c = pop(buf)
+print("pop=")
+print(c)
+print(" len=")
+print(len(buf))
+print("\n")
+
+empty(buf)
+print("after empty: len=")
+print(len(buf))
+print("\n")
+
+print("DONE\n")

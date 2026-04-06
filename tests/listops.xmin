@@ -1,0 +1,137 @@
+# Tests for append(), pop(), empty() list operations
+
+int passed = 0
+int failed = 0
+
+# Test 1: append to empty sized buffer
+char buf[16]
+empty(buf)
+append(buf, 65)
+append(buf, 66)
+append(buf, 67)
+if len(buf) == 3:
+  if buf[0] == 65:
+    if buf[2] == 67:
+      passed += 1
+      print("1 ")
+if len(buf) != 3:
+  print("FAIL 1 append\n")
+  failed += 1
+
+# Test 2: pop returns last element
+char c = pop(buf)
+if c == 67:
+  if len(buf) == 2:
+    passed += 1
+    print("2 ")
+if c != 67:
+  print("FAIL 2 pop\n")
+  failed += 1
+
+# Test 3: pop second element
+char c2 = pop(buf)
+if c2 == 66:
+  if len(buf) == 1:
+    passed += 1
+    print("3 ")
+if c2 != 66:
+  print("FAIL 3 pop2\n")
+  failed += 1
+
+# Test 4: empty clears count
+append(buf, 68)
+append(buf, 69)
+empty(buf)
+if len(buf) == 0:
+  if sizeof(buf) == 16:
+    passed += 1
+    print("4 ")
+if len(buf) != 0:
+  print("FAIL 4 empty\n")
+  failed += 1
+
+# Test 5: append int values
+int nums[8]
+empty(nums)
+append(nums, 100)
+append(nums, 200)
+append(nums, 300)
+if len(nums) == 3:
+  if nums[0] == 100:
+    if nums[2] == 300:
+      passed += 1
+      print("5 ")
+if len(nums) != 3:
+  print("FAIL 5 int append\n")
+  failed += 1
+
+# Test 6: pop int
+int v = pop(nums)
+if v == 300:
+  if len(nums) == 2:
+    passed += 1
+    print("6 ")
+if v != 300:
+  print("FAIL 6 int pop\n")
+  failed += 1
+
+# Test 7: append after pop (reuse slot)
+append(nums, 999)
+if nums[2] == 999:
+  if len(nums) == 3:
+    passed += 1
+    print("7 ")
+if nums[2] != 999:
+  print("FAIL 7 append after pop\n")
+  failed += 1
+
+# Test 8: build list in loop
+char word[32]
+empty(word)
+char letters = "Hello"
+int i = 0
+while i < len(letters):
+  append(word, letters[i])
+  i += 1
+if len(word) == 5:
+  if word[0] == 72:
+    if word[4] == 111:
+      passed += 1
+      print("8 ")
+if len(word) != 5:
+  print("FAIL 8 loop append\n")
+  failed += 1
+
+# Test 9: pop in expression
+int stack[16]
+empty(stack)
+append(stack, 10)
+append(stack, 20)
+append(stack, 30)
+int sum = pop(stack) + pop(stack) + pop(stack)
+if sum == 60:
+  if len(stack) == 0:
+    passed += 1
+    print("9 ")
+if sum != 60:
+  print("FAIL 9 pop expr\n")
+  failed += 1
+
+# Test 10: sizeof unchanged after operations
+char data[64]
+empty(data)
+append(data, 1)
+append(data, 2)
+int dummy = pop(data)
+if sizeof(data) == 64:
+  passed += 1
+  print("10 ")
+else:
+  print("FAIL 10 sizeof\n")
+  failed += 1
+
+print("\n")
+print(passed)
+print(" passed, ")
+print(failed)
+print(" failed\n")

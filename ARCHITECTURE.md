@@ -31,14 +31,14 @@ Error path:
 ## Memory Model
 From comments and constants in this file:
 
-- `0x1000..0x3f7f`: interpreter code + global state
-- `0x3f80..0x3fff`: long-lhs spill stack
+- `0x1000..0x3fff`: interpreter code + global state (12 KB)
 - `0x8000..0xcfff`: source text (`file`) with tokenized stream appended after loaded text (20 KB)
 - `0xd000..0xdfff`: shared tokenizer items dictionary / runtime data stack (4 KB). During tokenization, `newitems_ram` grows from `0xd000` upward with new variable/call name entries. At runtime, `firstsp` starts at `0xd000` and the full 4 KB is used as the expression/variable data stack. The two uses never overlap because tokenization completes before runtime begins.
 - `0xe000..0xe2ff`: call dictionary (`firstcall`, 3-byte entries, up to 256)
 - `0xe300..0xebff`: variable dictionary (`firstvar`, 9-byte entries, up to 256)
 - `0xec00..0xecff`: source-vector page (`firstsrc`), used for up to 11 fixed 22-byte entries
-- `0xed00`: page-aligned source-vector guard (`endsrc`)
+- `0xed00`: source-vector guard (`endsrc`) / long-lhs spill stack start
+- `0xed00..0xed7f`: long-lhs spill stack (128 bytes, relocated after source vector)
 - `0xff00..0xffff`: CPU fast page + hardware stack (managed by CPU push/pop and subroutine calls)
 
 Zero page (`MIN_ZERO_PAGE`, `0x0010..0x007f`) holds nearly all hot interpreter state (`z_pc`, `z_sp`, `z_type`, `z_cnt`, pointers, math registers), plus:
@@ -118,6 +118,8 @@ Token forms:
   - `<<`=`0xdd`, `>>`=`0xde`
 - keyword single-byte statement tokens:
   - `if/elif/else/while/break/def/return/char/int/long/call/print/serial/output` -> `'I','F','E','W','B','D','R','1','2','4','C','P','Q','O'`
+  - `append`=`'A'`, `empty`=`'G'` (statement-level buffer operations parsed in SimpleLine)
+  - `len`=`0xd8`, `sizeof`=`0xdf`, `pop`=`'K'` (expression-level built-ins parsed in Factor)
 - identifiers:
   - variables emit `'V' <id>`
   - function names emit `'S' <id>`
@@ -268,10 +270,19 @@ Lookup:
 ## Variable Semantics
 Declarations (`char`/`int`/`long`) are handled by `VarDefinition`.
 
+Every variable entry has two size fields:
+- `cnt` — current element count (what `len()` returns)
+- `max` — buffer capacity (what `sizeof()` returns)
+
+A **sized** variable is declared with `[N]` (e.g., `char buf[64]`). The capacity `max` is set to `N`. The element count `cnt` is set from the initializer (or `N` if uninitialized). `cnt` may be less than `max`, allowing writes beyond the initialized portion up to the capacity. Stack space is reserved for the full capacity (`N * type_width` bytes).
+
+An **unsized** variable has no `[N]` (e.g., `int x = 42` or `char msg = "Hello"`). Its capacity equals its element count (`max == cnt`). A scalar `int x = 42` has `cnt = max = 1`. A multi-element `char msg = "Hello"` has `cnt = max = 5`.
+
 Modes:
 - local storage from runtime stack (`z_sp`) with tracked `cnt` and `max`
 - absolute-address binding via `@ <expr>` for MMIO or fixed memory
 - optional initialization with typed expression enforcement
+- optional `[N]` buffer sizing between identifier and `@`/`=`
 
 Assignment (`VarAssignment`):
 - full assignment (`=`)
@@ -283,6 +294,13 @@ Reference and absolute-address interplay:
 - `&var` and `&var[...]` produce pointers and set reference metadata (`z_refset`, `z_refcnt`)
 - `type name @ <expr>` consumes the computed address as storage pointer
 - when used with reference metadata, `@` declarations can inherit element counts from referenced ranges
+
+Dynamic list operations on sized buffers:
+- `append(var, expr)` — writes `expr` at `var[cnt]`, increments `cnt`. Raises "Buffer overflow" if `cnt >= max`. The expression type must match the variable's declared type. Parsed as a statement in `SimpleLine`.
+- `pop(var)` — returns the value at `var[cnt-1]` and decrements `cnt`. Raises "Buffer empty" if `cnt == 0`. Parsed as an expression in `Factor`, returning a value of the variable's type.
+- `empty(var)` — sets `cnt` to 0 without changing `max` or the underlying data. Parsed as a statement in `SimpleLine`.
+
+These operations allow sized buffers to be used as dynamic lists. Indexed assignment (`var[i] = x`) does NOT update `cnt` — only `append`, `pop`, `empty`, and whole-value assignment (`var = expr`) modify `cnt`. The `len()` and `sizeof()` built-ins query `cnt` and `max` respectively.
 
 Constants are separate from variable semantics:
 - `:=` declarations are compile-time only and are consumed by the tokenizer.
@@ -300,6 +318,8 @@ Notable diagnostics now include:
 - `Duplicate variable name` for same-scope variable redeclaration.
 - `Value overflow` when a value assigned to `char` does not fit `0..255` (constants and typed assignments).
 - `Call stack overflow` when recursion/call depth exceeds the guarded runtime limit.
+- `Buffer overflow` when `append()` is called on a full buffer (`cnt >= max`), or when a sized initializer exceeds the declared capacity.
+- `Buffer empty` when `pop()` is called on a buffer with `cnt == 0`.
 
 ## Design Notes and Practical Limits
 - Core runtime declaration types in this file are `char`, `int`, and `long`.
@@ -373,6 +393,8 @@ simple-stmt = type, identifier, ['[', expr, ']'], ['@', expr ], ['=', init-expr 
             | 'print', '(', { comp-expr, [','] }, ')'
             | 'serial', '(', { comp-expr, [','] }, ')'
             | 'output', '(', { comp-expr, [','] }, ')'
+            | 'append', '(', identifier, ',', comp-expr, ')'              (* append element to sized buffer *)
+            | 'empty', '(', identifier, ')'                               (* clear element count of buffer *)
 
 constant    = '0x', { hexdigit }                                          (* int HEX number; bare 0x means zero *)
             | digit, { digit }                                            (* int DEC number *)
@@ -380,6 +402,9 @@ factor      = constant
             | cast-func
             | '(', expr, ')'                                              (* result of braced expression *)
             | 'key', '(', ')'                                             (* MINIMAL 64 uses API function instead *)
+            | 'len', '(', identifier, ')'                                 (* element count of variable *)
+            | 'sizeof', '(', identifier, ')'                              (* buffer capacity of variable *)
+            | 'pop', '(', identifier, ')'                                 (* remove and return last element *)
             | '"', { character }, '"'                                     (* char string *)
             | ['&'], identifier, ['[', [ expr ], ['|', [ expr ] ], ']']   (* [address of] variable [elements] *)
             | identifier, '(', { comp-expr, [','] }, ')'                  (* return value of function call *)
@@ -406,3 +431,9 @@ The `extended-min.min64x4` implementation differs from the baseline EBNF in a fe
 - Cast syntax is `char(expr)` (function-style), not C-style `(char)expr`, and not alternate assignment operators like `==` or `@=`.
 - Variable declarations support an optional `[N]` buffer size between the identifier and `@`/`=`. `char buf[64]` allocates an uninitialized 64-element buffer with `cnt=N, max=N`. `char buf[64] = 1, 2, 3` initializes 3 elements in a 64-capacity buffer (`cnt=3, max=64`). Buffer size is evaluated at runtime, so `char buf[n]` with a variable size is valid. A "Buffer overflow" error is raised if the initializer count exceeds the declared size. The `[N]` syntax also works with absolute-address bindings: `char mmio[8] @ 0xFE00`.
 - Commas in variable initializers act as element separators (equivalent to `_` concatenation). `char x = 1, 2, 3` is identical to `char x = 1 _ 2 _ 3`. In `print()`, `serial()`, `output()`, and function call argument lists, commas remain optional separators between distinct arguments (not concatenation).
+- `len(var)` returns the current element count (`cnt` field) of a variable as an int. For strings, this excludes the null terminator. `len` is a reserved keyword.
+- `sizeof(var)` returns the buffer capacity (`max` field) of a variable as an int. For unsized variables, `sizeof(var) == len(var)`. For sized buffers, `sizeof(var)` returns the declared capacity. `sizeof` is a reserved keyword.
+- `append(var, expr)` writes `expr` at position `cnt` in the variable's data and increments `cnt`. The expression type must match the variable's declared type. Raises "Buffer overflow" if the buffer is full (`cnt >= max`). `append` is a reserved keyword.
+- `pop(var)` returns the last element (`var[cnt-1]`) and decrements `cnt`. Returns a value of the variable's declared type. Raises "Buffer empty" if `cnt == 0`. `pop` is a reserved keyword.
+- `empty(var)` sets the variable's `cnt` to 0 without changing `max` or the stored data. `empty` is a reserved keyword.
+- Indexed assignment (`var[i] = x`) does not update `cnt`. Only `append`, `pop`, `empty`, and whole-value assignment (`var = expr`) modify `cnt`.
