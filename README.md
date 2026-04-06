@@ -1,5 +1,5 @@
 # Extended Min
-Adds functionality to the original Min programming language for the Minimal 64x4 Home Computer by Carsten Herting. Based on Carsten's original work.
+Adds functionality to the original Min programming language for the [Minimal 64x4 Home Computer by Carsten Herting](https://github.com/slu4coder/Minimal-64x4-Home-Computer/tree/main). Based on Carsten's original work.
 
 The primary enhancements to Min in this extended version include:
 - Support for various hardware expansion cards made for the Minimal 64x4, notably the [multiplication accelerator](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier)
