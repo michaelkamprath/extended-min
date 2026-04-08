@@ -44,7 +44,7 @@
 ; 0xfe80 - 0xfeff   expansion card memory map
 ; 0xff00 - 0xffff   fast page and stack
 
-; --------------------------------------------------------------------------------------
+; ----------------`----------------------------------------------------------------------
 ; MAIN PROCEDURE (FILE LOADER, TOKENIZER, INTERPRETER)
 ; --------------------------------------------------------------------------------------
 #require __LANGUAGE_NAME__ == slu4-min64x4-asm
@@ -495,46 +495,46 @@ strcmpexit:
 ; takes (specical) character including '\n' or '\e', returns result in A
 ; NOTE: 0, 10 and " have to be checked before!
 TakeOrd:
-    LDT z_pc CPI '\\' BNE takeordret
-    INV z_pc LDT z_pc                            ; look at next character
-    CPI 0 BEQ takeordexit CPI 10 BEQ takeordexit ; exit without consuming 0 or \n
-takeo0:
-    CPI 'r' BNE takeo1 LDI 13 JPA takeordret
-takeo1:
-    CPI 'n' BNE takeo2 LDI 10 JPA takeordret
-takeo2:
-    CPI 't' FNE takeo3 LDI 9 FPA takeordret
-takeo3:
-    CPI 'e' FNE takeo4 LDI 27 FPA takeordret
-takeo4:
-    CPI '0' FNE takeordret LDI 0
-takeordret:
+    LDT z_pc CPI '\\' BNE .takeordret
+    INV z_pc LDT z_pc                               ; look at next character
+    CPI 0 BEQ .takeordexit CPI 10 BEQ .takeordexit  ; exit without consuming 0 or \n
+.takeo0:
+    CPI 'r' BNE .takeo1 LDI 13 JPA .takeordret
+.takeo1:
+    CPI 'n' BNE .takeo2 LDI 10 JPA .takeordret
+.takeo2:
+    CPI 't' FNE .takeo3 LDI 9 FPA .takeordret
+.takeo3:
+    CPI 'e' FNE .takeo4 LDI 27 FPA .takeordret
+.takeo4:
+    CPI '0' FNE .takeordret LDI 0
+.takeordret:
     PHS INV z_pc PLS RTS
-takeordexit:
+.takeordexit:
     LDI '\\' RTS
 
 ; returns in A the next non-shite-space character including '\0' and '\n' but omitting # comments
 ; modifies: z_pc
 Next:
     JPS Look
-    CPI ' ' FEQ nexttake                         ; ' '
-    CPI 9 FEQ nexttake                           ; '\t'
-    CPI 13 FEQ nexttake                          ; '\r'
+    CPI ' ' FEQ .nexttake                         ; ' '
+    CPI 9 FEQ .nexttake                           ; '\t'
+    CPI 13 FEQ .nexttake                          ; '\r'
     RTS
-nexttake:
+.nexttake:
     INV z_pc FPA Next
 
 ; Takes two consecutive chars if matching (result = 1), else result = 0
 ; push: first char, second char
 ; pull #, result
 TakeTwo:
-    LDS 4 CPT z_pc FNE firstfalse
+    LDS 4 CPT z_pc FNE .firstfalse
     INV z_pc
-    LDS 3 CPT z_pc FNE secondfalse
+    LDS 3 CPT z_pc FNE .secondfalse
     INV z_pc LDI 1 STS 4 RTS
-secondfalse:
+.secondfalse:
     DEV z_pc                                     ; move back again
-firstfalse:
+.firstfalse:
     LDI 0 STS 4 RTS                              ; return false
 
 ; --------------------------------------------------------------------------------------
@@ -544,38 +544,38 @@ firstfalse:
 ; takes an alnum into 'z_itnext' position
 ; 'alptr' then points beyond the zero-termination, stores length in 'alcount' and A
 TakeAlNum:
-    MZB z_itnext+0,alptr+0 MZB z_itnext+1,alptr+1 ; init alptr
-    CLB alcount LDT z_pc                          ; first char needs no be an alpha
-    CPI 'z' FGT takeaout                          ; one above 'z'
-    CPI 'a' FCS takeisa
-    CPI 'Z' FGT takeaout                          ; one above 'Z'
-    CPI 'A' FCC takeaout
-takeisa:
-    STR alptr INW alptr INV z_pc INB alcount      ; store the char and continue
-takeanloop:
+    MZB z_itnext+0,.alptr+0 MZB z_itnext+1,.alptr+1     ; init alptr
+    CLB .alcount LDT z_pc                          ; first char needs no be an alpha
+    CPI 'z' FGT .takeaout                          ; one above 'z'
+    CPI 'a' FCS .takeisa
+    CPI 'Z' FGT .takeaout                          ; one above 'Z'
+    CPI 'A' FCC .takeaout
+.takeisa:
+    STR .alptr INW .alptr INV z_pc INB .alcount      ; store the char and continue
+.takeanloop:
     LDT z_pc                                      ; consecutive chars
-    CPI 'z' FGT takeaout
-    CPI 'a' FCS takeisa
-    CPI 'Z' FGT takeaout
-    CPI 'A' FCS takeisa
-    CPI '9' FGT takeaout                          ; one above '9'
-    CPI '0' FCS takeisa
-takeaout:
-    MIR 0,alptr INW alptr
-    LDB alcount RTS                               ; set null termination
+    CPI 'z' FGT .takeaout
+    CPI 'a' FCS .takeisa
+    CPI 'Z' FGT .takeaout
+    CPI 'A' FCS .takeisa
+    CPI '9' FGT .takeaout                          ; one above '9'
+    CPI '0' FCS .takeisa
+.takeaout:
+    MIR 0,.alptr INW .alptr
+    LDB .alcount RTS                               ; set null termination
 
-alcount:  .byte  0x00
-alptr:    .2byte 0x0000
+.alcount:  .byte  0x00
+.alptr:    .2byte 0x0000
 
 ; returns current character in A including '\0' and '\n' but omitting any # comments
 ; modifies: z_pc
 Look:
-    LDT z_pc CPI '#' FNE lookexit                 ; returns next character, ignores comments
-lookcomment:
+    LDT z_pc CPI '#' FNE .lookexit                 ; returns next character, ignores comments
+.lookcomment:
     INV z_pc LDT z_pc
-    CPI 0 FEQ lookexit                            ; ENDMARKER
-    CPI 10 FNE lookcomment                        ; NEWLINE
-lookexit:
+    CPI 0 FEQ .lookexit                            ; ENDMARKER
+    CPI 10 FNE .lookcomment                        ; NEWLINE
+.lookexit:
     RTS
 
 ; --------------------------------------------------------------------------------------
@@ -825,7 +825,7 @@ LongXorStore:
 
 CheckLongDivisor:
     LDZ z_C+0 ORZ z_C+1 ORZ z_C+2 ORZ z_C+3 CPI 0 FNE .checklongdiv_rts
-    LDI BYTE0(error22) PHS LDI BYTE1(error22) PHS JPA Error
+    PHSPTR error22 JPA Error
 .checklongdiv_rts:
     RTS
 
@@ -1150,16 +1150,16 @@ ScaleBByType:
 ; Enforces that a specific char is consumed, throws an error otherwise
 AssertCSquare:
     CIT ']',z_pc FEQ asstrue
-    LDI BYTE0(error30) PHS LDI BYTE1(error30) PHS JPA Error
+    PHSPTR error30 JPA Error
 AssertORound:
     CIT '(',z_pc FEQ asstrue
-    LDI BYTE0(error31) PHS LDI BYTE1(error31) PHS JPA Error
+    PHSPTR error31 JPA Error
 AssertCRound:
     CIT ')',z_pc FEQ asstrue
-    LDI BYTE0(error32) PHS LDI BYTE1(error32) PHS JPA Error
+    PHSPTR error32 JPA Error
 AssertEquals:
     CIT '=',z_pc FEQ asstrue
-    LDI BYTE0(error33) PHS LDI BYTE1(error33) PHS JPA Error
+    PHSPTR error33 JPA Error
 asstrue:
     INV z_pc RTS
 
@@ -1194,33 +1194,33 @@ getVar:
     ; 2-entry hot cache for repeated lookups in loops:
     ; key = (var_id, current sub, current var-top pointer)
     ; probe slot 0
-    LDS 3 CPZ z_vcache_id FNE var_probe1
-    CZZ z_vcache_sub,z_sub FNE var_probe1
-    CZZ z_vcache_top+0,z_nextvar+0 FNE var_probe1
-    CZZ z_vcache_top+1,z_nextvar+1 FNE var_probe1
+    LDS 3 CPZ z_vcache_id FNE .var_probe1
+    CZZ z_vcache_sub,z_sub FNE .var_probe1
+    CZZ z_vcache_top+0,z_nextvar+0 FNE .var_probe1
+    CZZ z_vcache_top+1,z_nextvar+1 FNE .var_probe1
     LDB z_vcache_ptr+1 STS 3 LDB z_vcache_ptr+0 STS 4 RTS
-var_probe1:
+.var_probe1:
     ; probe slot 1
-    LDS 3 CPZ z_vcache2_id FNE var_scan
-    CZZ z_vcache2_sub,z_sub FNE var_scan
-    CZZ z_vcache2_top+0,z_nextvar+0 FNE var_scan
-    CZZ z_vcache2_top+1,z_nextvar+1 FNE var_scan
+    LDS 3 CPZ z_vcache2_id FNE .var_scan
+    CZZ z_vcache2_sub,z_sub FNE .var_scan
+    CZZ z_vcache2_top+0,z_nextvar+0 FNE .var_scan
+    CZZ z_vcache2_top+1,z_nextvar+1 FNE .var_scan
     LDB z_vcache2_ptr+1 STS 3 LDB z_vcache2_ptr+0 STS 4 RTS
-var_scan:
+.var_scan:
     MVV z_nextvar,getptr                                    ; copy var top ptr
-varnext:
+.varnext:
     SIV 9,getptr                                            ; move down one var
-    CPI BYTE1(firstvar) BCS varokay                         ; MSB below start of var dict? -> end search
-varerror:
-    LDI BYTE0(error01) PHS LDI BYTE1(error01) PHS JPA Error ; error undefined var
-varokay:
-    LDS 3 CPT getptr BNE varnext                            ; matching ID?
-    INV getptr LDT getptr CPZ z_sub FEQ var_ok              ; advance to vp->sub
-    CPI 0xff FEQ var_ok                                     ; check for global
+    CPI BYTE1(firstvar) BCS .varokay                         ; MSB below start of var dict? -> end search
+.varerror:
+    PHSPTR error01 JPA Error ; error undefined var
+.varokay:
+    LDS 3 CPT getptr BNE .varnext                            ; matching ID?
+    INV getptr LDT getptr CPZ z_sub FEQ .var_ok              ; advance to vp->sub
+    CPI 0xff FEQ .var_ok                                     ; check for global
     SIV 10,getptr                                           ; not the right sub level => down one var
-    CPI BYTE1(firstvar) FCS varokay
-    JPA varerror
-var_ok:
+    CPI BYTE1(firstvar) FCS .varokay
+    JPA .varerror
+.var_ok:
     INV getptr                                              ; advance to ->type data
     ; shift slot 0 -> slot 1, store new hit in slot 0
     MZZ z_vcache_id,z_vcache2_id
@@ -1239,20 +1239,20 @@ var_ok:
 ; pull: pc_msb, pc_lsb
 getCall:
     ; cache probe: key = (call_id, z_nextcall)
-    LDS 3 CPZ z_ccache_id FNE call_scan
-    CZZ z_ccache_top+0,z_nextcall+0 FNE call_scan
-    CZZ z_ccache_top+1,z_nextcall+1 FNE call_scan
+    LDS 3 CPZ z_ccache_id FNE .call_scan
+    CZZ z_ccache_top+0,z_nextcall+0 FNE .call_scan
+    CZZ z_ccache_top+1,z_nextcall+1 FNE .call_scan
     LDB z_ccache_pc+1 STS 3 LDB z_ccache_pc+0 STS 4 RTS
-call_scan:
+.call_scan:
     LDS 3 STZ z_ccache_id                                   ; save call_id for cache + scan comparison
     MVV z_nextcall,z_ccache_top                             ; save z_nextcall snapshot for cache
     MVV z_nextcall,getptr                                   ; copy call top ptr
-callnext:
+.callnext:
     SIV 3,getptr                                            ; move down one call
-    CPI BYTE1(firstcall) FCS callokay                       ; stop below first call
-    LDI BYTE0(error01) PHS LDI BYTE1(error01) PHS JPA Error ; error undefined call
-callokay:
-    LDZ z_ccache_id CPT getptr FNE callnext                 ; compare saved call_id vs entry
+    CPI BYTE1(firstcall) FCS .callokay                       ; stop below first call
+    PHSPTR error01 JPA Error ; error undefined call
+.callokay:
+    LDZ z_ccache_id CPT getptr FNE .callnext                 ; compare saved call_id vs entry
     INV getptr LDT getptr STS 4                             ; put call jump address on stack
     INV getptr LDT getptr STS 3
     ; refresh cache value with resolved PC
