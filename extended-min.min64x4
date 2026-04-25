@@ -1991,49 +1991,49 @@ TypedCompExpr:
     JPS CompExpr                                            ; parses compound expression of any type
     PLS STZ tcomp_type
     MZZ z_type,z_flag                                       ; remember source type before any widening/narrowing
-    LDZ tcomp_type CPZ z_type BEQ tcomp_rts                 ; matching types -> do nothing, else enforce type
+    LDZ tcomp_type CPZ z_type BEQ .tcomp_rts                 ; matching types -> do nothing, else enforce type
     LDZ z_cnt+0 ANI 0xfe ORZ z_cnt+1                        ; conversions are scalar-only
-    CPI 0 BNE tcomperror
-    CIZ 1,tcomp_type BNE tcomp_toint                        ; desired type char?
+    CPI 0 BNE .tcomperror
+    CIZ 1,tcomp_type BNE .tcomp_toint                        ; desired type char?
     LDZ z_cnt+0 ANI 0xfe ORZ z_cnt+1                        ; int->char conversion only for one element
-    CPI 0 BNE tcomperror
-    CIB 4,z_flag FEQ tcomp_charlong
+    CPI 0 BNE .tcomperror
+    CIB 4,z_flag FEQ .tcomp_charlong
     MVV z_sp,longptr
     INW longptr
-    LDR longptr CPI 0 BEQ tcomp_charintdone
-    LDI BYTE0(error24) PHS LDI BYTE1(error24) PHS JPA Error
-tcomp_charlong:
-    CIT 0,z_spi BNE tcomp_charovf
+    LDR longptr CPI 0 BEQ .tcomp_charintdone
+    PHSPTR error24 JPA Error
+.tcomp_charlong:
+    CIT 0,z_spi BNE .tcomp_charovf
     MVV z_sp,longptr
     AIW 2,longptr
-    LDR longptr CPI 0 FNE tcomp_charovf
-    INW longptr LDR longptr CPI 0 FEQ tcomp_chardone
-tcomp_charovf:
-    LDI BYTE0(error24) PHS LDI BYTE1(error24) PHS JPA Error
-tcomp_charintdone:
+    LDR longptr CPI 0 FNE .tcomp_charovf
+    INW longptr LDR longptr CPI 0 FEQ .tcomp_chardone
+.tcomp_charovf:
+    PHSPTR error24 JPA Error
+.tcomp_charintdone:
     MIZ 1,z_type
     RTS
-tcomp_chardone:
+.tcomp_chardone:
     MVV z_sp,longptr
     INW longptr MIR 0,longptr
     MIZ 1,z_type
     RTS
-tcomp_toint:
-    CIZ 2,tcomp_type FNE tcomp_tolong                       ; desired type int?
-    CIB 4,z_flag FEQ tcomperror                             ; implicit long -> int narrowing is not allowed
-    CIB 1,z_flag FNE tcomp_rts
+.tcomp_toint:
+    CIZ 2,tcomp_type FNE .tcomp_tolong                       ; desired type int?
+    CIB 4,z_flag FEQ .tcomperror                             ; implicit long -> int narrowing is not allowed
+    CIB 1,z_flag FNE .tcomp_rts
     LDT z_sp LL1 LDI 0 RL1 NEG STT z_spi                    ; cast char -> int in C-style w/o branching
     MIZ 2,z_type
     RTS
-tcomp_tolong:
-    CIZ 4,tcomp_type FNE tcomperror
+.tcomp_tolong:
+    CIZ 4,tcomp_type FNE .tcomperror
     JPS getL
     JPS putL
     JPS CheckLongTop
-tcomp_rts:
+.tcomp_rts:
     RTS
-tcomperror:
-    LDI BYTE0(error06) PHS LDI BYTE1(error06) PHS JPA Error ; error type mismatch
+.tcomperror:
+    PHSPTR error06 JPA Error ; error type mismatch
 
 ; --------------------------------------------------------------------------------------
 ; STATEMENTS
@@ -2049,14 +2049,14 @@ return_else:
     RTS
 
 CallStmt:
-    CIT 0xd0,z_pc FEQ callint                                  ; address is TN_INT_CONST
-callerror:
-    LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA Error    ; error invalid expr
-callint:
+    CIT 0xd0,z_pc FEQ .callint                                  ; address is TN_INT_CONST
+.callerror:
+    PHSPTR error05 JPA Error    ; error invalid expr
+.callint:
     INV z_pc
-    LDT z_pc STB callto+0 INV z_pc
-    LDT z_pc STB callto+1 INV z_pc
-    JPS @callto: 0xffff                                        ; jump to subroutine
+    LDT z_pc STB .callto+0 INV z_pc
+    LDT z_pc STB .callto+1 INV z_pc
+    JPS @.callto: 0xffff                                        ; jump to subroutine
     STZ 0xff                                                   ; store accumulator SysReg
     RTS
 
