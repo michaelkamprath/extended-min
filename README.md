@@ -208,6 +208,16 @@ char header[16] = 0x44, 0x2a, 0x0e
 int lookup[8] = 10, 20, 30
 ```
 
+Large initializers can be split across physical source lines by ending each continued line with `\`:
+
+```xmin
+char data[8] = \
+  0xc9, 0x1b, 0x2e, 0x2c, \
+  0x3d, 0x1d, 0x86, 0x30
+```
+
+The tokenizer treats those physical lines as one logical line for parsing, while diagnostics still report physical source line numbers.
+
 Writing beyond the initial count but within the declared capacity is valid:
 
 ```xmin

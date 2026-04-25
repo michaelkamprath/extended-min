@@ -1,0 +1,21 @@
+# Factorial
+# Calculates all factorials that can fit
+# into xmin's signed 32-bit long
+
+def factorial(long n):
+  long res = 1
+  while n > 1:
+    res = res * n
+    n = n - 1
+  return res
+
+long n = 1
+while n < 13:
+  long res = factorial(n)
+  print(n)
+  print("! = ")
+  print(res)
+  print("\n")
+  n = n + 1
+
+print("Done!\n")

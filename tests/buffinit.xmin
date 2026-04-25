@@ -4,7 +4,7 @@
 int passed = 0
 int failed = 0
 int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0; int t7 = 0; int t8 = 0
-int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0; int t13 = 0; int t14 = 0; int t15 = 0; int t16 = 0
+int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0; int t13 = 0; int t14 = 0; int t15 = 0; int t16 = 0; int t17 = 0
 
 def showpass(int n, int s):
   if s == 1:
@@ -194,16 +194,31 @@ if t16 == 0:
   print("FAIL 16 exact fill\n")
   failed += 1; t16 = -1
 
+# Test 17: line continuation in sized initializer
+char cont[8] = \
+  1, 2, 3, 4, \
+  5, 6, 7, 8
+if cont[0] == 1:
+  if cont[3] == 4:
+    if cont[4] == 5:
+      if cont[7] == 8:
+        passed += 1; t17 = 1
+if t17 == 0:
+  print("FAIL 17 line continuation init\n")
+  failed += 1; t17 = -1
+
 # --- Summary ---
 print("\nPASS: ")
 showpass(1, t1); showpass(2, t2); showpass(3, t3); showpass(4, t4)
 showpass(5, t5); showpass(6, t6); showpass(7, t7); showpass(8, t8)
 showpass(9, t9); showpass(10, t10); showpass(11, t11); showpass(12, t12)
 showpass(13, t13); showpass(14, t14); showpass(15, t15); showpass(16, t16)
+showpass(17, t17)
 print("\nFAIL: ")
 showfail(1, t1); showfail(2, t2); showfail(3, t3); showfail(4, t4)
 showfail(5, t5); showfail(6, t6); showfail(7, t7); showfail(8, t8)
 showfail(9, t9); showfail(10, t10); showfail(11, t11); showfail(12, t12)
 showfail(13, t13); showfail(14, t14); showfail(15, t15); showfail(16, t16)
+showfail(17, t17)
 print("\n")
 print(passed); print(" passed, "); print(failed); print(" failed\n")

@@ -102,6 +102,7 @@ Import resolution:
 
 Important behavior:
 - Removes comments (`#...`) and irrelevant whitespace.
+- During regular token emission, treats a backslash outside strings as a physical line-continuation marker when it is followed only by whitespace/comment text and a newline. The backslash and newline are omitted from the token stream, the next line's indentation is ignored for parsing, and `g_line` still advances for source diagnostics. This is intended for long runtime initializer/data lines; constant declarations and `use` loader scanning are not continued this way.
 - Converts indentation into single-byte markers.
 - Encodes numbers and operators into compact token forms.
 - Interns identifiers into an item table so runtime uses IDs, not names.
@@ -355,6 +356,7 @@ const-type  = 'int' | 'char' | 'string' | 'long'
 identifier  = letter, { letter | digit }
 character   = ? any ASCII character ?
 NEWLINE     = '\n'
+LINECONT    = '\\', { ' ' | '\t' | '\r' }, [ '#', { character } ], NEWLINE
 ENDMARKER   = '\0'
 IND++       = ? increase target indentation (start with -1) ?
 IND--       = ? decrease target indentation (start with -1) ?
@@ -413,7 +415,7 @@ base-expr   = ['-'], term, { add-op, term }
 rel-expr    = base-expr, { rel-op, base-expr }
 expr        = ['not'], rel-expr, { logic-op, rel-expr }
 comp-expr   = expr, {'_', expr }                                          (* compound expressions of same data type *)
-init-expr   = comp-expr, {',', comp-expr }                                (* comma-separated initializer list *)
+init-expr   = comp-expr, { [LINECONT], ',', [LINECONT], comp-expr }        (* comma-separated initializer list *)
 ```
 
 ## EBNF vs This Interpreter
@@ -431,6 +433,7 @@ The `extended-min.min64x4` implementation differs from the baseline EBNF in a fe
 - Cast syntax is `char(expr)` (function-style), not C-style `(char)expr`, and not alternate assignment operators like `==` or `@=`.
 - Variable declarations support an optional `[N]` buffer size between the identifier and `@`/`=`. `char buf[64]` allocates an uninitialized 64-element buffer with `cnt=N, max=N`. `char buf[64] = 1, 2, 3` initializes 3 elements in a 64-capacity buffer (`cnt=3, max=64`). Buffer size is evaluated at runtime, so `char buf[n]` with a variable size is valid. A "Buffer overflow" error is raised if the initializer count exceeds the declared size. The `[N]` syntax also works with absolute-address bindings: `char mmio[8] @ 0xFE00`.
 - Commas in variable initializers act as element separators (equivalent to `_` concatenation). `char x = 1, 2, 3` is identical to `char x = 1 _ 2 _ 3`. In `print()`, `serial()`, `output()`, and function call argument lists, commas remain optional separators between distinct arguments (not concatenation).
+- A backslash at the end of a physical source line can continue a logical runtime token line. This is intended for long initializer lists such as data blobs; tokenizer line accounting still uses the physical source line so diagnostics point at the user's file line.
 - `len(var)` returns the current element count (`cnt` field) of a variable as an int. For strings, this excludes the null terminator. `len` is a reserved keyword.
 - `sizeof(var)` returns the buffer capacity (`max` field) of a variable as an int. For unsized variables, `sizeof(var) == len(var)`. For sized buffers, `sizeof(var)` returns the declared capacity. `sizeof` is a reserved keyword.
 - `append(var, expr)` writes `expr` at position `cnt` in the variable's data and increments `cnt`. The expression type must match the variable's declared type. Raises "Buffer overflow" if the buffer is full (`cnt >= max`). `append` is a reserved keyword.
