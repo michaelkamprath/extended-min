@@ -91,7 +91,7 @@ On successful load, it explicitly writes a trailing `\0` byte in RAM before retu
 The loader now treats `source_top` (`0xd000`) as the exclusive source/token upper bound and aborts with `Out of RAM` if imported source would cross into the shared tokenizer/runtime area.
 
 Import resolution:
-- Loader performs a raw scan for `use "..."` and appends each file into source memory.
+- Loader scans source text for `use "..."`, ignoring `#...` comment regions, and appends each file into source memory.
 - Max imported-source tracking is implemented via source-vector pointer progression.
 - `Tokenizer` later skips `use` lines so imports affect loading, not runtime statements.
 - Tokenization walks the source-vector from newest to oldest entry, so imported modules are tokenized before their importers.

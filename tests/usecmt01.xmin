@@ -1,0 +1,5 @@
+# Loader should ignore import-looking text in comments.
+# On the buggy loader, the next line is treated as a real import and fails.
+#   use "missing.xmin"
+
+print("PASS usecmt01\n")

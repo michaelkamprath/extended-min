@@ -25,6 +25,7 @@ Current suites:
 - `p5opsctl.xmin`: long ops plus compare/control regressions
 - `p6muldiv.xmin`: int/long multiply and divide behavior
 - `arrslice.xmin`: array and slice behavior
+- `usecmt01.xmin`: loader ignores commented `use "..."` text
 
 Intentionally omitted from this first standalone suite set:
 
