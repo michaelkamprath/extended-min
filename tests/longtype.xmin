@@ -1,0 +1,11 @@
+# Check long type plumbing
+
+def echo(long v)
+  long tmp = v
+  return tmp
+
+long VALUE := 0x00112233
+long x = echo(VALUE)
+
+print(x)
+print("\n")
