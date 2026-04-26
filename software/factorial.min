@@ -1,0 +1,21 @@
+# Factorial
+# Calculates all factorials that can fit
+# into Min's signed 16-bit in
+
+def factorial(int n):
+  int res = 1
+  while n > 1:
+    res = res * n
+    n = n - 1
+  return res
+
+int n = 1
+while n < 8:
+  int res = factorial(n)
+  print(n)
+  print("! = ")
+  print(res)
+  print("\n")
+  n = n + 1
+
+print("Done!\n")
