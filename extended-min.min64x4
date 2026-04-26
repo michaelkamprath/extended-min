@@ -376,6 +376,10 @@ t_strbail:
     MIT '"',z_dst INV z_dst JPA t_stopcheck
 
 t_next10:
+    CPI '$' FNE t_next10a                                          ; $(0xNN, ...) char blob
+    JPA t_blobstart
+
+t_next10a:
     JPS ParseDecimalLiteral32
     CPI 2 BEQ t_hexoverflow
     CPI 1 FNE t_next11
@@ -459,15 +463,6 @@ t_stopscan:
 
 t_continue:
     JPS Next
-    CPI '\\' FNE t_contend
-    MZB z_pc+0,t_contpc+0 MZB z_pc+1,t_contpc+1                 ; remember possible non-continuation backslash
-    INV z_pc JPS Next
-    CPI 10 FEQ t_linejoin
-    MWV t_contpc,z_pc                                           ; not a continuation: tokenize the backslash normally
-    JPA t_lineloop
-t_linejoin:
-    INW g_line INV z_pc FPA t_continue                          ; consume physical newline, keep logical token line open
-t_contend:
     CPI 10 BEQ t_while CPI 0 BEQ t_while                          ; line ends?
     JPA t_lineloop                                                ; line goes on
 
@@ -477,7 +472,6 @@ t_rts:
     RTS
 
 srcptr:             .2byte 0xffff                                 ; pointer into sources dict (vector)
-t_contpc:           .2byte 0xffff                                 ; tokenizer: saved source pc while probing line continuation
 ind:                .byte  0xff                                   ; measured indentation
 vid:                .byte  0xff                                   ; ids of var and call identifiers
 cid:                .byte  0xff
@@ -494,22 +488,23 @@ strcmp:
     LDB @strcmp_b: 0xffff
     CPB @strcmp_a: 0xffff                        ; self-modifying code
 
-    FNE strcmpfalse CPI 0 FEQ strcmpexit
+    FEQ strcmpnext
+    LDI 1 RTS
+strcmpnext:
+    CPI 0 FNE strcmpcont
+    RTS
+strcmpcont:
     INW strcmp_a INW strcmp_b
     FPA strcmp
-strcmpfalse:
-    LDI 1
-strcmpexit:
-    RTS
 
 ; takes (specical) character including '\n' or '\e', returns result in A
 ; NOTE: 0, 10 and " have to be checked before!
 TakeOrd:
-    LDT z_pc CPI '\\' FNE .takeordret
+    LDT z_pc CPI '\\' BNE .takeordret
     INV z_pc LDT z_pc                               ; look at next character
-    CPI 0 FEQ .takeordexit CPI 10 FEQ .takeordexit  ; exit without consuming 0 or \n
+    CPI 0 BEQ .takeordexit CPI 10 BEQ .takeordexit  ; exit without consuming 0 or \n
 .takeo0:
-    CPI 'r' FNE .takeo1 LDI 13 FPA .takeordret
+    CPI 'r' BNE .takeo1 LDI 13 JPA .takeordret
 .takeo1:
     CPI 'n' FNE .takeo2 LDI 10 FPA .takeordret
 .takeo2:
@@ -634,14 +629,14 @@ int_tostr:
     CPI 10 FCC .int_done                                    ; 10 did not fit in => do not set bit 7 as carry
     ADI 118 STZ z_C+2                                       ; 10 went into it => subtract 10 and set bit 7 as carry (-10 +128)
 .int_done:
-    DEZ z_count FNE .int_shift
+    DEZ z_count BNE .int_shift
     LDZ z_C+2 ANI 0x7f                                      ; erase a possible stored carry
     ADI '0' STT z_strptr DEV z_strptr                       ; store remainder as char
     LDZ z_C+2 RL1                                           ; restore stored carry flag
     RLV z_C                                                 ; shift in C and shift everything one step up
     RLZ z_C+2                                               ; shift C into 'remember' and shift an old carry out
-    LDI 0 CPZ z_C+0 FNE .int_start                          ; prüfe nach, ob big register null enthält
-    CPZ z_C+1 FNE .int_start
+    LDI 0 CPZ z_C+0 BNE .int_start                          ; prüfe nach, ob big register null enthält
+    CPZ z_C+1 BNE .int_start
     LDB .int_str CPI '-' FNE .int_out                       ; A must hold '-' for STR below
     STT z_strptr RTS
 .int_out:
@@ -702,7 +697,7 @@ long_pow10_table:
 PushLongLhsSpill:
     MVV lhs_spill_ptr,longptr
     AIW 4,longptr
-    CIB BYTE1(lhs_spill_end),longptr+1 FCC .store
+    CIB BYTE1(lhs_spill_end),longptr+1 BCC .store
     BNE memerror
     CIB BYTE0(lhs_spill_end),longptr+0 FCC .store
     BNE memerror
@@ -909,11 +904,11 @@ LongDivEC:
     LLQ z_E
     RLQ z_F
     JPS LongUCompareFC
-    CIB 1,z_flag FEQ .longdiv_skip
+    CIB 1,z_flag BEQ .longdiv_skip
     SQQ z_C,z_F
     INZ z_E+0
 .longdiv_skip:
-    DEZ z_count FNE .longdiv_loop
+    DEZ z_count BNE .longdiv_loop
     MQQ z_E,z_C
     LDB z_D+0 ANI 1 CPI 1 FNE .longdiv_rts
     JPS LongNegC
@@ -1013,7 +1008,7 @@ int_div:
     CIZ 0,z_A+1 FPL .divanotneg             ; make A and B positive, evaluate the sign of result
     INZ z_flag NEV z_A                      ; store a sign, negate A                                    ;
 .divanotneg:
-    CIZ 0,z_B+1 FPL .divbnotneg
+    CIZ 0,z_B+1 BPL .divbnotneg
     INZ z_flag NEV z_B                      ; store a(nother) sign, negate B
 .divbnotneg:
     MZZ z_B+0,z_B+1 CLZ z_B+0               ; move the lower half of B to upper half, clear lower half
@@ -1178,6 +1173,9 @@ gotadvance:
     INV z_pc
 SkipStmt:
     LDT z_pc CPI 0xe0 FCS .gotindent                        ; move over current line until next indent is found
+    CPI 0xcf FNE .notblob
+    JPA skipblob
+.notblob:
     CPI 0xd0 FNE .notlong
     AIV 3,z_pc FPA SkipStmt                                 ; hop over 16-bit numbers like 254 that might look like fake indent
 .notlong:
@@ -1214,7 +1212,7 @@ getVar:
     LDS 3 CPZ z_vcache2_id BNE .var_scan
     CZZ z_vcache2_sub,z_sub BNE .var_scan
     CZZ z_vcache2_top+0,z_nextvar+0 BNE .var_scan
-    CZZ z_vcache2_top+1,z_nextvar+1 FNE .var_scan
+    CZZ z_vcache2_top+1,z_nextvar+1 BNE .var_scan
     LDB z_vcache2_ptr+1 STS 3 LDB z_vcache2_ptr+0 STS 4 RTS
 .var_scan:
     MVV z_nextvar,getptr                                    ; copy var top ptr
@@ -1295,6 +1293,10 @@ fac_next2:
     RTS
 
 fac_next2b:
+    CPI 0xcf FNE fac_next2c                                 ; TN_CHAR_BLOB
+    JPA fac_blob
+
+fac_next2c:
     CPI '&' BNE fac_next3                                   ; VARIABLE
     PHS INV z_pc                                            ; push & consume '&'
     CIT 'V',z_pc BEQ fac_isvar
@@ -2089,7 +2091,7 @@ if_2_else:
 if_3_else:
     JPS SkipStmt FPA if_while
 if_1_end:
-    CIT 'E',z_pc FNE if_2_end
+    CIT 'E',z_pc BNE if_2_end
     LDZ z_mind CPZ z_tind FNE if_2_end
     INV z_pc
     LDS 1 CPI 0 FEQ if_4_else
@@ -2583,7 +2585,7 @@ var_localvar:
     JPA var_locelse
 
 var_localsized:
-    CIT '=',z_pc BEQ var_sizedinit
+    CIT '=',z_pc FEQ var_sizedinit
     ; uninitialized sized buffer: cnt = N, max = N
     SIV 4,z_nextvar                                          ; back to ->cnt
     LDZ z_bufsize+0 STT z_nextvar INV z_nextvar              ; ->cnt = N
@@ -2907,7 +2909,7 @@ ConstTrackDefLine:
 
 ; classify the identifier currently stored in z_itnext
 ; input:  A = identifier length from TakeAlNum
-; output: A = 0 no match, 1 char, 2 int, 3 string, 4 long
+; output: A = 0 no match, 1 char, 2 int, 4 long
 ConstClassifyTypeName:
     MZB z_itnext+0,const_src+0
     MZB z_itnext+1,const_src+1
@@ -2947,8 +2949,7 @@ ConstClassifyTypeName:
 ; parses and stores:
 ;   int Name := <numeric-literal|numeric-const-name|char(<numeric-rhs>)>
 ;   long Name := <numeric-literal|numeric-const-name|char(<numeric-rhs>)|int(<numeric-rhs>)|long(<numeric-rhs>)>
-;   char Name := <numeric-rhs|string-literal|string-const-name>
-;   string Name := <string-literal|string-const-name>
+;   char Name := <numeric-rhs|string-literal|char-const-name>
 ; return A=1 if declaration consumed, A=0 if not a const declaration
 TryConstDecl:
     MZB z_pc+0,const_savepc+0
@@ -2984,8 +2985,7 @@ TryConstDecl:
 .sepc2:
     CPI '=' FNE .bad
     INV z_pc
-    LDB const_decl_type CPI 3 FEQ .string_rhs                     ; A must retain type for CPI chain below
-    CPI 1 FNE .int_rhs
+    LDB const_decl_type CPI 1 FNE .int_rhs
 .char_rhs:
     JPS ConstParseNumericRhs CPI 1 FEQ .char_num
     JPS ConstParseStringRhs CPI 1 FNE .bad
@@ -3004,8 +3004,6 @@ TryConstDecl:
 .int_check:
     CIB 4,const_num_type FEQ .overflow
     FPA .tail
-.string_rhs:
-    JPS ConstParseStringRhs CPI 1 FNE .bad
 .tail:
     JPS Next
     CPI ';' FNE .tail2
@@ -3037,8 +3035,8 @@ ConstParseNumericRhs:
     CPI '0' FCC .name
     CPI '9' BLE .lit
 .name:
-    JPS TakeAlNum CPI 0 FEQ .failrestore
-    CPI 14 FCS .failrestore
+    JPS TakeAlNum CPI 0 BEQ .failrestore
+    CPI 14 BCS .failrestore
     JAS ConstClassifyTypeName
     CPI 1 FNE .lookupint
     JPS Next
@@ -3111,12 +3109,12 @@ ConstParseStringRhs:
     MIW 0x0001,const_text_len
     INV z_pc
 .litloop:
-    LDT z_pc CPI '"' BEQ .litclose
-    CPI 0 BEQ .litbail
-    CPI 10 BEQ .litbail
+    LDT z_pc CPI '"' FEQ .litclose
+    CPI 0 FEQ .litbail
+    CPI 10 FEQ .litbail
     JPS TakeOrd
     INW const_text_len
-    JPA .litloop
+    FPA .litloop
 .litclose:
     INV z_pc
 .litbail:
@@ -3213,13 +3211,13 @@ ParseHexLiteral:
     CPI '0' BCS .digit
     JPA .done
 .maybe_upper:
-    CPI 'F' BGT .maybe_lower
+    CPI 'F' FGT .maybe_lower
     CPI 'A' BCS .upper
-    FPA .done
+    JPA .done
 .maybe_lower:
-    CPI 'f' FGT .done
-    CPI 'a' FCS .lower
-    FPA .done
+    CPI 'f' BGT .done
+    CPI 'a' BCS .lower
+    JPA .done
 .digit:
     SUI '0'
     FPA .accum
@@ -3370,7 +3368,7 @@ ConstAddStringEntry:
     MIZ 14,z_count
 .cpyname:
     LDR const_src STR const_dst INW const_src INW const_dst
-    DEZ z_count FNE .cpyname
+    DEZ z_count BNE .cpyname
     MBB const_dst+0,const_scan+0
     MBB const_dst+1,const_scan+1
     AIW 2,const_dst
@@ -3488,7 +3486,7 @@ ConstSubstitute:
     LDI 1 RTS
 .fail:
     MIW conststrtab,const_start
-    JPS ConstLookupString CPI 1 BNE .miss
+    JPS ConstLookupString CPI 1 FNE .miss
     MZB z_dst+0,const_dst+0
     MZB z_dst+1,const_dst+1
     JPS ConstCopyStringBlobToDst
@@ -3575,54 +3573,49 @@ Mul16FullABToC:
 #endif
 
 ; --------------------------------------------------------------------------------------
-; HOT LOOP ROUTINES (relocated here so SimpleLine can be page-aligned)
-; Error strings packed into .align padding
+; HOT LOOP ROUTINES (kept near cold tables; no page alignment to preserve code space)
 ; --------------------------------------------------------------------------------------
 
-error01:  .cstr "Invalid ID"
-error02:  .cstr "Unknown stmt"
-error05:  .cstr "Invalid expr"
-.align
 ; push: character
 ; pull: #
 SimpleLine:
     LDT z_pc
     CPI 'V' FNE linenext1
     INV z_pc LDT z_pc PHS PHS INV z_pc JPS getVar
-    JPS VarAssignment PLS PLS FPA linecont
+    JPS VarAssignment PLS PLS JPA linecont
 linenext1:
     CPI 'B' FNE linenext2
-    INV z_pc LDI 2 OR.Z z_halt FPA linecont               ; BreakStmt: z_halt |= BREAK
+    INV z_pc LDI 2 OR.Z z_halt JPA linecont               ; BreakStmt: z_halt |= BREAK
 linenext2:
     CPI 'S' FNE linenext3
     INV z_pc LDT z_pc PHS PHS INV z_pc JPS getCall
-    JPS FunctionCall PLS PLS FPA linecont
+    JPS FunctionCall PLS PLS JPA linecont
 linenext3:
     CPI 'R' FNE linenext4
-    INV z_pc JPS ReturnStmt FPA linecont
+    INV z_pc JPS ReturnStmt JPA linecont
 linenext4:
     CPI '1' FNE linenext5
-    INV z_pc LDI 1 PHS JPS VarDefinition PLS FPA linecont
+    INV z_pc LDI 1 PHS JPS VarDefinition PLS JPA linecont
 linenext5:
     CPI '2' FNE linenext6
-    INV z_pc LDI 2 PHS JPS VarDefinition PLS FPA linecont
+    INV z_pc LDI 2 PHS JPS VarDefinition PLS JPA linecont
 linenext6:
     CPI '4' FNE linenext6b
-    INV z_pc LDI 4 PHS JPS VarDefinition PLS FPA linecont
+    INV z_pc LDI 4 PHS JPS VarDefinition PLS JPA linecont
 linenext6b:
     CPI 'C' FNE linenext7
-    INV z_pc JPS CallStmt FPA linecont
+    INV z_pc JPS CallStmt JPA linecont
 linenext7:
     CPI 'P' FNE linenext8
-    INV z_pc JPS PrintStmt FPA linecont
+    INV z_pc JPS PrintStmt JPA linecont
 linenext8:
     CPI 'Q' FNE linenext9
-    INV z_pc JPS SerialStmt FPA linecont
+    INV z_pc JPS SerialStmt JPA linecont
 linenext9:
     CPI 'O' FNE linenext10
-    INV z_pc JPS OutputStmt FPA linecont
+    INV z_pc JPS OutputStmt JPA linecont
 linenext10:
-    CPI 'A' FNE linenext11
+    CPI 'A' BNE linenext11
     INV z_pc JPS AppendStmt FPA linecont
 linenext11:
     CPI 'G' FNE lineerror
@@ -3630,8 +3623,8 @@ linenext11:
 lineerror:
     PHSPTR error02 JPA Error                              ; error invalid simple stmt
 linecont:
-    LDT z_pc CPI 0xe0 FCS lineindent                      ; end of the line (indent) reached?
-    CIZ 0,z_halt FEQ SimpleLine                           ; any halt flag set?
+    LDT z_pc CPI 0xe0 BCS lineindent                      ; end of the line (indent) reached?
+    CIZ 0,z_halt BEQ SimpleLine                           ; any halt flag set?
     RTS
 lineindent:
     NOT DEC STZ z_mind INV z_pc RTS
@@ -3703,8 +3696,70 @@ whilehaltrts:
     RTS
 
 ; --------------------------------------------------------------------------------------
-; ERROR STRINGS (remaining — others packed into .align padding above)
+; Compact char blob token helpers.
+; Source syntax: $(0xNN, 0xNN, ...)
 
+t_blobstart:
+    INV z_pc CIT '(',z_pc BNE t_bloberror
+    INV z_pc
+    MIT 0xcf,z_dst INV z_dst
+    MVV z_dst,z_PtrC
+    MIT 0,z_dst INV z_dst MIT 0,z_dst INV z_dst
+    CLV z_cnt
+t_blobloop:
+    JPS Next
+    CPI 10 BNE t_blobnotnl
+    INW g_line INV z_pc JPA t_blobloop
+t_blobnotnl:
+    CPI ')' BEQ t_blobdone
+    CPI ',' FNE t_blobhex
+    INV z_pc JPA t_blobloop
+t_blobhex:
+    JPS ParseHexLiteral
+    CPI 2 BEQ t_bloboverflow
+    CPI 1 BNE t_bloberror
+    LDZ z_C+1 ORZ z_C+2 ORZ z_C+3 CPI 0 BNE t_bloboverflow
+    LDZ z_C+0 STT z_dst INV z_dst INV z_cnt
+    JPA t_blobloop
+t_blobdone:
+    INV z_pc
+    LDZ z_cnt+0 STT z_PtrC INV z_PtrC
+    LDZ z_cnt+1 STT z_PtrC
+    JPA t_stopcheck
+t_bloboverflow:
+    JPA t_hexoverflow
+t_bloberror:
+    PHSPTR error05 JPA SourceError
+
+skipblob:
+    INV z_pc
+    LDT z_pc STZ z_A+0 INV z_pc
+    LDT z_pc STZ z_A+1 INV z_pc
+    AVV z_A,z_pc JPA SkipStmt
+
+fac_blob:
+    INV z_pc MIZ 1,z_type
+    LDT z_pc STZ z_cnt+0 STZ z_A+0 INV z_pc
+    LDT z_pc STZ z_cnt+1 STZ z_A+1 INV z_pc
+    MVV z_sp,z_PtrC
+fac_blobloop:
+    DEV z_A FCC fac_blobdone
+    LDT z_pc STT z_PtrC INV z_pc INV z_PtrC FPA fac_blobloop
+fac_blobdone:
+    MIT 0,z_PtrC                                            ; write zero-termination byte
+    CIB BYTE1(endsp),z_PtrC+1 FCC fac_blobrts
+    BNE memerror
+    CIB BYTE0(endsp),z_PtrC+0 FCC fac_blobrts
+    BNE memerror
+fac_blobrts:
+    RTS
+
+; --------------------------------------------------------------------------------------
+; ERROR STRINGS
+
+error01:  .cstr "Invalid ID"
+error02:  .cstr "Unknown stmt"
+error05:  .cstr "Invalid expr"
 error06:  .cstr "Type mismatch"
 error07:  .cstr "Out of IDs"
 error08:  .cstr "Out of RAM"
@@ -3713,10 +3768,10 @@ error14:  .cstr "Invalid index"
 error16:  .cstr "Invalid def"
 error17:  .cstr "Invalid parameter"
 error19:  .cstr "Invalid argument"
-error22:  .cstr "Devide by 0"
-error23:  .cstr "Duplicate constant name"
+error22:  .cstr "Div by 0"
+error23:  .cstr "Dup const"
 error24:  .cstr "Value overflow"
-error25:  .cstr "Duplicate variable name"
+error25:  .cstr "Dup var"
 error26:  .cstr "Call stack overflow"
 error27:  .cstr "Buffer overflow"
 error28:  .cstr "Buffer empty"
@@ -3757,7 +3812,6 @@ consts_next:        .2byte 0x0000          ; next free string const table entry
 const_type_items:
     .byte 'char',0,'.........', 1
     .byte 'int',0,'..........', 2
-    .byte 'string',0,'.......', 3
     .byte 'long',0,'.........', 4
 const_type_items_end:
 

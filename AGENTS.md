@@ -23,7 +23,7 @@ Any agent working in this directory should read `ARCHITECTURE.md` before making 
 - runtime evaluation
 - function and variable dictionaries
 - source-aware error reporting
-- compile-time numeric and string constants
+- compile-time numeric and string-literal `char` constants
 - `long` support
 - explicit cast support
 
@@ -245,11 +245,11 @@ When changing variable or call lookup:
 - verify shadowing behavior
 - verify repeated lookup in loops
 
-## Constants and `string`
+## Constants and String-Like Char Values
 
-`string` is tokenizer-only syntax for constant declarations. It is not a runtime type token.
+String-like constants use `char Name := "..."`.
 
-Be careful not to accidentally treat `string` as a normal runtime declaration keyword.
+There is no separate string declaration keyword or runtime type token.
 
 Const handling is split between:
 
@@ -278,10 +278,9 @@ Run a short smoke set such as:
 - `tests/m1cmplng.xmin`
 - `tests/arrslice.xmin`
 
-### For constants and string work
+### For constants work
 
 - `tests/p2consts.xmin`
-- `tests/p3strngs.xmin`
 
 ### For long and expression work
 

@@ -20,7 +20,6 @@ Current suites:
 - `m2ctrlfl.xmin`: control flow, break, else, nested loops
 - `m2augasg.xmin`: `+=` / `-=` fast paths
 - `p2consts.xmin`: constants, casts, shadowing, hex literals
-- `p3strngs.xmin`: string constants and aliases
 - `p4longs1.xmin`: long casts, literals, params, returns
 - `p5opsctl.xmin`: long ops plus compare/control regressions
 - `p6muldiv.xmin`: int/long multiply and divide behavior

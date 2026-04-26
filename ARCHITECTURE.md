@@ -8,7 +8,7 @@
 - parsing and execution
 - function/variable storage
 - error reporting with source line reconstruction
-- typed compile-time constants (`int`/`char`/`long` plus tokenizer-only `string` aliases), resolved during tokenization
+- typed compile-time constants (`int`/`char`/`long`; `char` constants can hold string literal payloads), resolved during tokenization
 - explicit cast syntax (`char(expr)`, `int(expr)`, `long(expr)`) for width control
 
 This document describes how that runtime works internally.
@@ -102,7 +102,6 @@ Import resolution:
 
 Important behavior:
 - Removes comments (`#...`) and irrelevant whitespace.
-- During regular token emission, treats a backslash outside strings as a physical line-continuation marker when it is followed only by whitespace/comment text and a newline. The backslash and newline are omitted from the token stream, the next line's indentation is ignored for parsing, and `g_line` still advances for source diagnostics. This is intended for long runtime initializer/data lines; constant declarations and `use` loader scanning are not continued this way.
 - Converts indentation into single-byte markers.
 - Encodes numbers and operators into compact token forms.
 - Interns identifiers into an item table so runtime uses IDs, not names.
@@ -110,6 +109,7 @@ Important behavior:
 
 Token forms:
 - `0xff`: end marker
+- `0xcf <cnt_lsb> <cnt_msb> <raw bytes...>`: compact char byte blob
 - `0xe0..0xfe`: indentation markers
 - `0xd0 <lsb> <msb>`: 16-bit integer constant
 - `0xd1 <b0> <b1> <b2> <b3>`: 32-bit long constant
@@ -141,10 +141,9 @@ Typed-constant rules (tokenizer-time):
 - Declaration forms:
   - `int Name := <numeric-literal | const-name>`
   - `long Name := <numeric-literal | const-name>`
-  - `char Name := <numeric-rhs | string-literal | string-const-name>`
-  - `string Name := <string-literal | string-const-name>`
+  - `char Name := <numeric-rhs | string-literal | char-const-name>`
 - Numeric `const-name` RHS must reference a previously declared numeric constant (no forward references).
-- String `const-name` RHS must reference a previously declared string constant (no forward references).
+- String-literal `char` constant RHS must reference a previously declared string-literal `char` constant (no forward references).
 - Scope:
   - declarations at top level are global and visible after declaration
   - declarations inside a function are function-local and visible only within that function after declaration
@@ -152,7 +151,7 @@ Typed-constant rules (tokenizer-time):
 - Resolution:
   - constant identifier use is replaced at tokenization time
   - numeric constants emit `0xd0 <lsb> <msb>` or `0xd1 <b0> <b1> <b2> <b3>` according to stored width
-  - string constants emit the same quoted token bytes as inline source string literals
+  - string-literal `char` constants emit the same quoted token bytes as inline source string literals
 - Numeric literal policy is consistent across tokenizer literal handling and constant-declaration parsing:
   - hex literals use lowercase `0x` prefix only
   - hex digits may be `0-9`, `a-f`, or `A-F`
@@ -160,8 +159,8 @@ Typed-constant rules (tokenizer-time):
   - parsing accumulates into an internal wider buffer, then current callers reject values above the requested width
   - unary minus remains expression syntax outside literal parsing
 - No runtime constant table is used; constants do not consume var-dictionary entries.
-- During tokenization, numeric constant metadata is stored in the call-dictionary region (`0xe000..0xe2ff`) and string constant metadata is stored in the var-dictionary region (`0xe300..0xebff`) before runtime dictionary initialization.
-- `string` is not a runtime type token. It is recognized only by the constant-declaration prelude and expands to char-string literal payload at substitution sites.
+- During tokenization, numeric constant metadata is stored in the call-dictionary region (`0xe000..0xe2ff`) and string-literal `char` constant metadata is stored in the var-dictionary region (`0xe300..0xebff`) before runtime dictionary initialization.
+- There is no separate declaration keyword for string constants. String-like constants use `char Name := "..."` and expand to char-string literal payload at substitution sites.
 
 Explicit cast syntax is implemented:
 - Use cast-function syntax, not operator variants:
@@ -324,7 +323,7 @@ Notable diagnostics now include:
 
 ## Design Notes and Practical Limits
 - Core runtime declaration types in this file are `char`, `int`, and `long`.
-- `string`-alias constant declarations are tokenizer-only sugar and do not add a runtime type tag.
+- String-like `char` constant declarations are tokenizer-only sugar and do not add a runtime type tag.
 - Dictionaries are fixed-size memory regions; both `getCall` (1-entry) and `getVar` (2-entry) use hot caches in front of linear scan.
 - Runtime memory checks guard expression-stack overflow and index range errors, and `FunctionCall` guards hardware call-stack depth.
 - Import loading is source-text driven (`use "..."`) before interpretation.
@@ -333,7 +332,7 @@ Notable diagnostics now include:
 - `serial(...)` behaves identically to `print(...)` but routes all output to the UART via `OUT`/`_SerialWait` instead of screen output.
 - `output(...)` behaves identically to `print(...)` but sends output to both the screen and the UART.
 - `call <const_addr>` requires a tokenized integer constant address, making external API calls explicit and low-overhead.
-- Hot loop routines (`SimpleLine`, `Block`, `FastBlock`, `WhileStmt`) are relocated near the end of the code with `.align` so `SimpleLine`'s dispatch loop fits entirely on one 256-byte page, keeping all fast-branch instructions valid.
+- Hot loop routines (`SimpleLine`, `Block`, `FastBlock`, `WhileStmt`) are relocated near the end of the code, but are not page-aligned. This preserves interpreter code space at the cost of a few extra long branches in hot dispatch paths.
 
 ## Min Language EBNF Description
 The following EBNF is a useful baseline reference for Min syntax.
@@ -352,11 +351,10 @@ add-op      = '+'  | '-'
 mul-op      = '*'  | '/'
 logic-op    = 'and' | 'or' | 'xor' | '>>' | '<<'
 type        = 'int' | 'char' | 'long'
-const-type  = 'int' | 'char' | 'string' | 'long'
+const-type  = 'int' | 'char' | 'long'
 identifier  = letter, { letter | digit }
 character   = ? any ASCII character ?
 NEWLINE     = '\n'
-LINECONT    = '\\', { ' ' | '\t' | '\r' }, [ '#', { character } ], NEWLINE
 ENDMARKER   = '\0'
 IND++       = ? increase target indentation (start with -1) ?
 IND--       = ? decrease target indentation (start with -1) ?
@@ -400,7 +398,9 @@ simple-stmt = type, identifier, ['[', expr, ']'], ['@', expr ], ['=', init-expr 
 
 constant    = '0x', { hexdigit }                                          (* int HEX number; bare 0x means zero *)
             | digit, { digit }                                            (* int DEC number *)
+blob-lit    = '$(', { NEWLINE | ',' | constant }, ')'                      (* char byte blob; constants must be 0..255 *)
 factor      = constant
+            | blob-lit
             | cast-func
             | '(', expr, ')'                                              (* result of braced expression *)
             | 'key', '(', ')'                                             (* MINIMAL 64 uses API function instead *)
@@ -415,7 +415,7 @@ base-expr   = ['-'], term, { add-op, term }
 rel-expr    = base-expr, { rel-op, base-expr }
 expr        = ['not'], rel-expr, { logic-op, rel-expr }
 comp-expr   = expr, {'_', expr }                                          (* compound expressions of same data type *)
-init-expr   = comp-expr, { [LINECONT], ',', [LINECONT], comp-expr }        (* comma-separated initializer list *)
+init-expr   = comp-expr, { ',', comp-expr }                                (* comma-separated initializer list *)
 ```
 
 ## EBNF vs This Interpreter
@@ -429,11 +429,11 @@ The `extended-min.min64x4` implementation differs from the baseline EBNF in a fe
 - Long arithmetic now covers add/sub/mul/div/bitwise/shift/compare operations, plus `+=` and `-=` fast paths.
 - Constants are declaration-order dependent (no forward references) because tokenization is single-pass.
 - Function-local constants use function scope (not block scope), with local-first name resolution then global fallback.
-- `string` declarations are tokenizer-only aliases for char-string literal token payload and do not exist in runtime type dispatch.
+- String-like constants are tokenizer-only `char` aliases for char-string literal token payload and do not exist in runtime type dispatch.
 - Cast syntax is `char(expr)` (function-style), not C-style `(char)expr`, and not alternate assignment operators like `==` or `@=`.
 - Variable declarations support an optional `[N]` buffer size between the identifier and `@`/`=`. `char buf[64]` allocates an uninitialized 64-element buffer with `cnt=N, max=N`. `char buf[64] = 1, 2, 3` initializes 3 elements in a 64-capacity buffer (`cnt=3, max=64`). Buffer size is evaluated at runtime, so `char buf[n]` with a variable size is valid. A "Buffer overflow" error is raised if the initializer count exceeds the declared size. The `[N]` syntax also works with absolute-address bindings: `char mmio[8] @ 0xFE00`.
 - Commas in variable initializers act as element separators (equivalent to `_` concatenation). `char x = 1, 2, 3` is identical to `char x = 1 _ 2 _ 3`. In `print()`, `serial()`, `output()`, and function call argument lists, commas remain optional separators between distinct arguments (not concatenation).
-- A backslash at the end of a physical source line can continue a logical runtime token line. This is intended for long initializer lists such as data blobs; tokenizer line accounting still uses the physical source line so diagnostics point at the user's file line.
+- Compact byte blobs use `$(` ... `)` and tokenize to a length-prefixed raw byte token. They are `char` expressions, so `char data = $(0x01, 0x02)` produces a normal sliceable/indexable `char` buffer. `int` and `long` views over blob bytes are made explicitly with `type view[N] @ &rawCharBlob`; bytes must be laid out little-endian, and the typed view aliases the raw buffer rather than copying it.
 - `len(var)` returns the current element count (`cnt` field) of a variable as an int. For strings, this excludes the null terminator. `len` is a reserved keyword.
 - `sizeof(var)` returns the buffer capacity (`max` field) of a variable as an int. For unsized variables, `sizeof(var) == len(var)`. For sized buffers, `sizeof(var)` returns the declared capacity. `sizeof` is a reserved keyword.
 - `append(var, expr)` writes `expr` at position `cnt` in the variable's data and increments `cnt`. The expression type must match the variable's declared type. Raises "Buffer overflow" if the buffer is full (`cnt >= max`). `append` is a reserved keyword.

@@ -3,11 +3,12 @@ Adds functionality to the original Min programming language for the [Minimal 64x
 
 The primary enhancements to Min in this extended version include:
 - Support for various hardware expansion cards made for the Minimal 64x4, notably the [multiplication accelerator](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier)
-- Additions of constants to the language to avoid the use of "magic numbers" or "magic strings" (new `string` constant type).
+- Additions of typed compile-time constants to avoid the use of magic numbers and repeated string literals.
 - Support for the `long` 32-bit signed integer type.
 - Introduction of explicit type casting to avoid silent value truncations.
 - Ability to print to not only the screen, but also the UART connection.
 - Sized buffer declarations (`char buf[64]`, `int table[N]`) with optional comma-separated initializers.
+- Compact hex byte blobs for large `char` data tables.
 - Built-in query functions `len()` and `sizeof()` for inspecting variable element counts and buffer capacity.
 - Dynamic list operations `append()`, `pop()`, and `empty()` for using sized buffers as lists.
 
@@ -151,7 +152,6 @@ Supported constant declaration types:
 - `int`
 - `char`
 - `long`
-- `string`
 
 Examples:
 
@@ -159,15 +159,15 @@ Examples:
 int ScreenBase := 0x0080
 long BigValue := 0x12345678
 char LetterA := 65
-string Banner := "HELLO"
+char Banner := "HELLO"
 ```
 
 Constant rules:
 
 - a constant must be declared before it is used
-- `string` is only a compile-time alias type, not a runtime variable type
+- `char` constants may hold either a numeric byte value or a string-like byte sequence
 - function-local constants are visible only within that function
-- `string` constants are stored internally as length-tracked tokenized text, but when used as runtime `char` string values they behave as null-terminated byte sequences
+- string-like `char` constants are stored internally as length-tracked tokenized text, but when used as runtime `char` values they behave as null-terminated byte sequences
 
 ## Variables, arrays, and fixed-address bindings
 
@@ -208,15 +208,34 @@ char header[16] = 0x44, 0x2a, 0x0e
 int lookup[8] = 10, 20, 30
 ```
 
-Large initializers can be split across physical source lines by ending each continued line with `\`:
+For dense binary `char` data, use a compact hex byte blob. The blob can span physical source lines and is tokenized as raw bytes instead of one integer expression per value:
 
 ```xmin
-char data[8] = \
-  0xc9, 0x1b, 0x2e, 0x2c, \
+char data[8] = $(
+  0xc9, 0x1b, 0x2e, 0x2c,
   0x3d, 0x1d, 0x86, 0x30
+)
 ```
 
-The tokenizer treats those physical lines as one logical line for parsing, while diagnostics still report physical source line numbers.
+Blob values must be hex bytes (`0x00` through `0xff`). Whitespace, comments, physical newlines, and commas are allowed inside the blob. After initialization, `data` is a normal `char` buffer, so indexing, slicing, `len(data)`, and by-reference calls work normally.
+
+The blob expression itself is always a `char` byte sequence. To view the same bytes as `int` or `long` elements, declare the blob as `char` and bind a typed variable to its address with `@ &name`. Multi-byte values are little-endian:
+
+```xmin
+char rawWords = $(
+  0x34, 0x12,   # 0x1234
+  0x78, 0x56    # 0x5678
+)
+int words[2] @ &rawWords
+print(words[0], " ", words[1], "\n")
+
+char rawLongs = $(
+  0x78, 0x56, 0x34, 0x12
+)
+long values[1] @ &rawLongs
+```
+
+The typed view aliases the same memory; it does not copy or repack bytes. Keep the raw `char` buffer alive for as long as the typed view is used, and make sure the byte count matches the typed element count.
 
 Writing beyond the initial count but within the declared capacity is valid:
 
@@ -502,7 +521,7 @@ call 0xf033
 
 ```xmin
 int Step := 5
-string Hello := "HELLO"
+char Hello := "HELLO"
 
 def bump(int n):
   n += Step
