@@ -6,3 +6,6 @@
 # Python virtual environments
 .venv/
 
+# Development
+docs/
+
