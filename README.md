@@ -1,6 +1,17 @@
 # Extended Min
 Adds functionality to the original Min programming language for the [Minimal 64x4 Home Computer by Carsten Herting](https://github.com/slu4coder/Minimal-64x4-Home-Computer/tree/main). Based on Carsten's original work.
 
+Two target machines are supported from parallel sources:
+
+- `extended-min.min64x4` — the original Minimal 64x4
+- `extended-min.min64x4r` — the Minimal 64x4 Redux
+
+The two files are kept in sync; the only intended differences are the Redux
+instruction-set renames (the A-store family `STZ/STT/STB/STR/STS` is named
+`SDZ/SDT/SDB/SDR/SDS` on the Redux), a handful of branch-form differences
+required by the Redux fast-branch page rule, and the ISA `#require` pragmas.
+Functional changes must be applied to both files.
+
 The primary enhancements to Min in this extended version include:
 - Support for various hardware expansion cards made for the Minimal 64x4, notably the [multiplication accelerator](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier)
 - Additions of typed compile-time constants to avoid the use of magic numbers and repeated string literals.
@@ -18,6 +29,12 @@ Extended Min must be built with [the BespokeASM assembler](https://github.com/mi
 
 ```bash
 bespokeasm compile -c /path/to/slu4-minimal-64x4.yaml -n -p -t intel_hex extended-min.min64x4
+```
+
+For the Minimal 64x4 Redux, build the Redux source against the Redux instruction-set configuration instead:
+
+```bash
+bespokeasm compile -c /path/to/slu4-minimal-64x4-redux.yaml -n -p -t intel_hex extended-min.min64x4r
 ```
 
 The resulting Intel Hex output is then transferred to the Minimal 64x4 via the UART connection using its `receive` command. Once downloaded to the Minimal 64x4, pay attention to the start and stop address of the downloaded Intel Hex, then save the code to a program file on the Minimal 64x4 with the command `save XXXX YYYYY xmin`, where `XXXX` is the start address (typically hex 1000) and `YYYY` is the stop address (something around hex 3B00). 
@@ -39,7 +56,7 @@ Current skills:
 - `bespokeasm` installed and available on `PATH`
 - either `curl` or `wget` available on `PATH`
 
-The compile skill fetches the Minimal 64x4 BespokeASM configuration from the BespokeASM GitHub repository into `/tmp`, so the skills do not depend on host-specific absolute paths.
+The compile skill fetches the Minimal 64x4 (or Minimal 64x4 Redux, for `*.min64x4r` sources) BespokeASM configuration from the BespokeASM GitHub repository into `/tmp`, so the skills do not depend on host-specific absolute paths.
 
 ### Using the compile skill
 
@@ -52,6 +69,8 @@ Direct script usage:
 ```bash
 skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4
 skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4 -- -D USE_ACCELERATOR
+skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4r
+skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4r -- -D USE_ACCELERATOR
 ```
 
 ### Using the `optimize-size` skill

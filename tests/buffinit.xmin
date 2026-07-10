@@ -213,12 +213,24 @@ char blob[6] = $(
   0xc9, 0x00, 0x22,
   0x7f, 0xe0, 0x0a
 )
+# NOTE: char reads are sign-extended ("C-style"), so 0xe0 compares as -32, not 224.
 if len(blob) == 6:
   if blob[1] == 0:
     if blob[2] == 34:
-      if blob[4] == 224:
+      if blob[4] == -32:
         if blob[5] == 10:
           passed += 1; t18 = 1
+        else:
+          print("blob[5] != 10\n")
+      else:
+        print("blob[4] != -32, blob[4] = ", int(blob[4]), "\n")
+    else:
+      print("blob[2] != 34\n")
+  else:
+    print("blob[1] != 0\n")
+else:
+  print("len(blob) != 6, len = ", len(blob), "\n")
+
 if t18 == 0:
   print("FAIL 18 hex blob init\n")
   failed += 1; t18 = -1
@@ -233,6 +245,8 @@ char rawLongs = $(
   0x78, 0x56, 0x34, 0x12
 )
 long values[1] @ &rawLongs
+# Hex literals > 0xffff tokenize as long constants, so this also regression-tests
+# long hex literal support.
 if words[0] == 0x1234:
   if words[1] == 0x5678:
     if values[0] == 0x12345678:

@@ -3,23 +3,39 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: fetch_min64x4_config.sh [dest]
+Usage: fetch_min64x4_config.sh [--redux] [dest]
 
 Fetches the latest Minimal 64x4 BespokeASM instruction-set configuration file.
 
+Options:
+  --redux Fetch the Minimal 64x4 Redux configuration instead of the original.
+
 Arguments:
   dest    Optional output path. Defaults to MIN64X4_CONFIG_PATH or
-          /tmp/slu4-minimal-64x4.yaml.
+          /tmp/slu4-minimal-64x4.yaml (original), and to
+          MIN64X4_REDUX_CONFIG_PATH or /tmp/slu4-minimal-64x4-redux.yaml
+          (--redux).
 USAGE
 }
+
+variant="original"
+if [[ $# -gt 0 && "$1" == "--redux" ]]; then
+  variant="redux"
+  shift
+fi
 
 if [[ $# -gt 1 ]]; then
   usage >&2
   exit 2
 fi
 
-dest="${1:-${MIN64X4_CONFIG_PATH:-/tmp/slu4-minimal-64x4.yaml}}"
-url="https://raw.githubusercontent.com/michaelkamprath/bespokeasm/main/examples/slu4-minimal-64x4/slu4-minimal-64x4.yaml"
+if [[ "$variant" == "redux" ]]; then
+  dest="${1:-${MIN64X4_REDUX_CONFIG_PATH:-/tmp/slu4-minimal-64x4-redux.yaml}}"
+  url="https://raw.githubusercontent.com/michaelkamprath/bespokeasm/main/examples/slu4-minimal-64x4-redux/slu4-minimal-64x4-redux.yaml"
+else
+  dest="${1:-${MIN64X4_CONFIG_PATH:-/tmp/slu4-minimal-64x4.yaml}}"
+  url="https://raw.githubusercontent.com/michaelkamprath/bespokeasm/main/examples/slu4-minimal-64x4/slu4-minimal-64x4.yaml"
+fi
 
 if command -v curl >/dev/null 2>&1; then
   curl -fsSL -o "$dest" "$url"

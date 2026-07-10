@@ -1,7 +1,7 @@
 # Extended Min Interpreter Architecture
 
 ## Scope
-`extended-min.min64x4` is a complete Min language runtime in one assembly file:
+`extended-min.min64x4` is a complete Min language runtime in one assembly file. A parallel port, `extended-min.min64x4r`, targets the Minimal 64x4 Redux; the two files are kept in sync line-for-line and differ only in the Redux instruction-set renames (`STZ/STT/STB/STR/STS` → `SDZ/SDT/SDB/SDR/SDS`), a few fast-vs-long branch forms, and the ISA `#require` pragmas (see `AGENTS.md` for the dual-target sync rules). Everything in this document — memory map, zero-page layout, runtime structure — applies identically to both targets. The runtime is:
 - command-line and RAM entry handling
 - source loading (`use` import support)
 - tokenization
@@ -396,7 +396,7 @@ simple-stmt = type, identifier, ['[', expr, ']'], ['@', expr ], ['=', init-expr 
             | 'append', '(', identifier, ',', comp-expr, ')'              (* append element to sized buffer *)
             | 'empty', '(', identifier, ')'                               (* clear element count of buffer *)
 
-constant    = '0x', { hexdigit }                                          (* int HEX number; bare 0x means zero *)
+constant    = '0x', { hexdigit }                                          (* HEX number: int, or long when > 0xffff; bare 0x means zero *)
             | digit, { digit }                                            (* int DEC number *)
 blob-lit    = '$(', { NEWLINE | ',' | constant }, ')'                      (* char byte blob; constants must be 0..255 *)
 factor      = constant
@@ -425,6 +425,8 @@ The `extended-min.min64x4` implementation differs from the baseline EBNF in a fe
 - `use "file"` is processed by the loader pre-pass and skipped by the tokenizer; it is not executed as a runtime statement token.
 - `key()` is not a core keyword in this interpreter file; keyboard/library behavior is expected via imported Min libraries and/or `call` integration.
 - Hex constants require lowercase `0x` prefix and accept uppercase or lowercase hex digits.
+- Inline hex literals wider than 16 bits (e.g. `0x12345678`) tokenize as `long` constants. Hex values `0x8000`..`0xffff` stay `int` bit patterns (so addresses and masks keep int type), unlike decimal literals >= 32768, which promote to `long`.
+- `char` values are unsigned `0..255` on assignment but sign-extend on read ("C-style" signed char): a stored byte >= `0x80` evaluates and compares as its negative value (e.g. `0xe0` reads as `-32`, never equal to `224`). The `int()` cast preserves this sign extension.
 - Constants behavior is tokenizer-time substitution, so declarations do not exist as runtime statements.
 - Long arithmetic now covers add/sub/mul/div/bitwise/shift/compare operations, plus `+=` and `-=` fast paths.
 - Constants are declaration-order dependent (no forward references) because tokenization is single-pass.

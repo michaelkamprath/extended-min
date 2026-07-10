@@ -5,11 +5,11 @@ int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0; int t13 = 0; int 
 int t15 = 0; int t16 = 0; int t17 = 0; int t18 = 0; int t19 = 0; int t20 = 0; int t21 = 0
 int t22 = 0; int t23 = 0; int t24 = 0; int t25 = 0; int t26 = 0; int t27 = 0; int t28 = 0
 
-def show_pass(int n, int s):
+def showpass(int n, int s):
   if s == 1:
     print(n); print(" ")
 
-def show_fail(int n, int s):
+def showfail(int n, int s):
   if s == -1:
     print(n); print(" ")
 
@@ -252,15 +252,15 @@ else:
   failed += 1; t28 = -1
 
 print("PASS ")
-show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5); show_pass(6, t6); show_pass(7, t7)
-show_pass(8, t8); show_pass(9, t9); show_pass(10, t10); show_pass(11, t11); show_pass(12, t12); show_pass(13, t13); show_pass(14, t14)
-show_pass(15, t15); show_pass(16, t16); show_pass(17, t17); show_pass(18, t18); show_pass(19, t19); show_pass(20, t20); show_pass(21, t21)
-show_pass(22, t22); show_pass(23, t23); show_pass(24, t24); show_pass(25, t25); show_pass(26, t26); show_pass(27, t27); show_pass(28, t28)
+showpass(1, t1); showpass(2, t2); showpass(3, t3); showpass(4, t4); showpass(5, t5); showpass(6, t6); showpass(7, t7)
+showpass(8, t8); showpass(9, t9); showpass(10, t10); showpass(11, t11); showpass(12, t12); showpass(13, t13); showpass(14, t14)
+showpass(15, t15); showpass(16, t16); showpass(17, t17); showpass(18, t18); showpass(19, t19); showpass(20, t20); showpass(21, t21)
+showpass(22, t22); showpass(23, t23); showpass(24, t24); showpass(25, t25); showpass(26, t26); showpass(27, t27); showpass(28, t28)
 print("\nFAIL ")
-show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5); show_fail(6, t6); show_fail(7, t7)
-show_fail(8, t8); show_fail(9, t9); show_fail(10, t10); show_fail(11, t11); show_fail(12, t12); show_fail(13, t13); show_fail(14, t14)
-show_fail(15, t15); show_fail(16, t16); show_fail(17, t17); show_fail(18, t18); show_fail(19, t19); show_fail(20, t20); show_fail(21, t21)
-show_fail(22, t22); show_fail(23, t23); show_fail(24, t24); show_fail(25, t25); show_fail(26, t26); show_fail(27, t27); show_fail(28, t28)
+showfail(1, t1); showfail(2, t2); showfail(3, t3); showfail(4, t4); showfail(5, t5); showfail(6, t6); showfail(7, t7)
+showfail(8, t8); showfail(9, t9); showfail(10, t10); showfail(11, t11); showfail(12, t12); showfail(13, t13); showfail(14, t14)
+showfail(15, t15); showfail(16, t16); showfail(17, t17); showfail(18, t18); showfail(19, t19); showfail(20, t20); showfail(21, t21)
+showfail(22, t22); showfail(23, t23); showfail(24, t24); showfail(25, t25); showfail(26, t26); showfail(27, t27); showfail(28, t28)
 print("\nm1cmplng PASS=")
 print(passed)
 print(" FAIL=")
