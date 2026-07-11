@@ -12,7 +12,8 @@ The main source files are:
 The two source files are kept in sync line-for-line. The only intended differences are:
 
 - the Redux renames the A-store instruction family: `STZ/STT/STB/STR/STS` (original) is `SDZ/SDT/SDB/SDR/SDS` (Redux). On the Redux, `STZ` and `STT` still exist but are *two-operand subtraction instructions* — a missed rename fails to assemble because the operand counts do not match.
-- a handful of fast-vs-long branch form differences. The Redux resolves a fast branch's target page from the *instruction* address; the original resolves it from the *operand fetch* address. They disagree only when a fast-branch opcode sits at the last byte of a page (`0xXXFF`), and the extra long-branch bytes shift downstream layout, which can cascade. BespokeASM enforces the correct rule for each ISA at compile time.
+- a handful of fast-vs-long branch form differences. Both machines resolve a fast branch's target page from the *operand fetch* address, but the two files' layouts differ slightly (renames, pragmas), so different branches land near page edges in each; the extra long-branch bytes shift downstream layout, which can cascade. BespokeASM enforces the page rule at compile time.
+- On both machines the fast-op target page resolves from the *operand fetch* position, so a fast op whose opcode sits at the last byte of a page targets the *next* page. The BespokeASM configs enforce this (`match_on_argument_bytcode: true` on `address_lsb`); the Redux config was missing that flag until 2026-07-10 (symptom on hardware: corrupted tokenization, nonsense early errors like `Invalid expr` on a plain constant). If such symptoms appear after a layout change, verify the fetched config has the flag before debugging the interpreter.
 - the `#require __LANGUAGE_NAME__` / `__LANGUAGE_VERSION__` pragmas and the file header.
 
 Rules:

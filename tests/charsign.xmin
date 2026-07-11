@@ -1,0 +1,130 @@
+# Char signedness semantics
+# Assignment accepts -128..255; == and != with a char compare low bytes,
+# so extended-ASCII values match in decimal, hex, or negative notation.
+# Ordering, arithmetic, and int() stay signed ("C-style", like slu4 Min).
+
+int passed = 0
+int failed = 0
+int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0; int t7 = 0
+int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0
+
+def showpass(int n, int s):
+  if s == 1:
+    print(n); print(" ")
+
+def showfail(int n, int s):
+  if s == -1:
+    print(n); print(" ")
+
+char blob[4] = $(0xc9, 0x7f, 0xe0, 0x0a)
+
+# Test 1: high-bit byte equals its unsigned decimal value
+if blob[2] == 224:
+  passed += 1; t1 = 1
+else:
+  print("FAIL 1 == 224\n")
+  failed += 1; t1 = -1
+
+# Test 2: same byte equals its hex notation
+if blob[2] == 0xe0:
+  passed += 1; t2 = 1
+else:
+  print("FAIL 2 == 0xe0\n")
+  failed += 1; t2 = -1
+
+# Test 3: same byte equals its signed value
+if blob[2] == -32:
+  passed += 1; t3 = 1
+else:
+  print("FAIL 3 == -32\n")
+  failed += 1; t3 = -1
+
+# Test 4: assign a negative value, read back both ways
+char neg = -32
+if neg == -32:
+  if neg == 224:
+    passed += 1; t4 = 1
+if t4 == 0:
+  print("FAIL 4 char = -32\n")
+  failed += 1; t4 = -1
+
+# Test 5: assign unsigned extended-ASCII, read back both ways
+char pos = 224
+if pos == 224:
+  if pos == -32:
+    passed += 1; t5 = 1
+if t5 == 0:
+  print("FAIL 5 char = 224\n")
+  failed += 1; t5 = -1
+
+# Test 6: != is byte-wise too
+if blob[2] != 225:
+  if blob[2] != -31:
+    passed += 1; t6 = 1
+if t6 == 0:
+  print("FAIL 6 != byte-wise\n")
+  failed += 1; t6 = -1
+
+# Test 7: ordering stays signed: high-bit byte is negative
+if blob[2] < 0:
+  passed += 1; t7 = 1
+else:
+  print("FAIL 7 signed order\n")
+  failed += 1; t7 = -1
+
+# Test 8: sign boundary 0x7f is positive in every notation
+if blob[1] == 127:
+  if blob[1] == 0x7f:
+    if blob[1] > 0:
+      passed += 1; t8 = 1
+if t8 == 0:
+  print("FAIL 8 0x7f boundary\n")
+  failed += 1; t8 = -1
+
+# Test 9: -128 boundary round-trips
+char low = -128
+if low == -128:
+  if low == 128:
+    if low == 0x80:
+      passed += 1; t9 = 1
+if t9 == 0:
+  print("FAIL 9 -128 boundary\n")
+  failed += 1; t9 = -1
+
+# Test 10: 255 boundary round-trips
+char hi = 255
+if hi == 255:
+  if hi == -1:
+    passed += 1; t10 = 1
+if t10 == 0:
+  print("FAIL 10 255 boundary\n")
+  failed += 1; t10 = -1
+
+# Test 11: int() cast is still signed
+if int(blob[2]) == -32:
+  passed += 1; t11 = 1
+else:
+  print("FAIL 11 int() signed\n")
+  failed += 1; t11 = -1
+
+# Test 12: indexed char element assignment accepts negatives
+char buf[3] = 1, 2, 3
+buf[1] = -32
+if buf[1] == 224:
+  if buf[1] == -32:
+    passed += 1; t12 = 1
+if t12 == 0:
+  print("FAIL 12 element = -32\n")
+  failed += 1; t12 = -1
+
+print("PASS ")
+showpass(1, t1); showpass(2, t2); showpass(3, t3); showpass(4, t4); showpass(5, t5); showpass(6, t6)
+showpass(7, t7); showpass(8, t8); showpass(9, t9); showpass(10, t10); showpass(11, t11); showpass(12, t12)
+print("\nFAIL ")
+showfail(1, t1); showfail(2, t2); showfail(3, t3); showfail(4, t4); showfail(5, t5); showfail(6, t6)
+showfail(7, t7); showfail(8, t8); showfail(9, t9); showfail(10, t10); showfail(11, t11); showfail(12, t12)
+print("\ncharsign PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

@@ -316,7 +316,7 @@ This design keeps normal execution fast while still providing source-level diagn
 Notable diagnostics now include:
 - `Duplicate constant name` for same-scope constant redefinition.
 - `Duplicate variable name` for same-scope variable redeclaration.
-- `Value overflow` when a value assigned to `char` does not fit `0..255` (constants and typed assignments).
+- `Value overflow` when a value assigned to `char` does not fit `-128..255` (typed assignments; named `char` constants remain `0..255`).
 - `Call stack overflow` when recursion/call depth exceeds the guarded runtime limit.
 - `Buffer overflow` when `append()` is called on a full buffer (`cnt >= max`), or when a sized initializer exceeds the declared capacity.
 - `Buffer empty` when `pop()` is called on a buffer with `cnt == 0`.
@@ -426,7 +426,7 @@ The `extended-min.min64x4` implementation differs from the baseline EBNF in a fe
 - `key()` is not a core keyword in this interpreter file; keyboard/library behavior is expected via imported Min libraries and/or `call` integration.
 - Hex constants require lowercase `0x` prefix and accept uppercase or lowercase hex digits.
 - Inline hex literals wider than 16 bits (e.g. `0x12345678`) tokenize as `long` constants. Hex values `0x8000`..`0xffff` stay `int` bit patterns (so addresses and masks keep int type), unlike decimal literals >= 32768, which promote to `long`.
-- `char` values are unsigned `0..255` on assignment but sign-extend on read ("C-style" signed char): a stored byte >= `0x80` evaluates and compares as its negative value (e.g. `0xe0` reads as `-32`, never equal to `224`). The `int()` cast preserves this sign extension.
+- `char` assignment accepts `-128..255` (the low byte is stored). Equality (`==`, `!=`) with a `char` on either side compares the low 8 bits of both operands, so a stored `0xe0` equals `224`, `0xe0`, and `-32` alike. Ordering (`<`, `<=`, `>`, `>=`), arithmetic, and the `int()` cast treat chars as signed `-128..127` ("C-style", matching slu4 Min) — so `c < 0` tests the high bit, and `int(c)` of byte `0xe0` yields `-32`. Comparisons against `long` values use the full signed value (no byte-wise equality). Named `char` constants (`:=`) remain `0..255` (their grammar has no sign).
 - Constants behavior is tokenizer-time substitution, so declarations do not exist as runtime statements.
 - Long arithmetic now covers add/sub/mul/div/bitwise/shift/compare operations, plus `+=` and `-=` fast paths.
 - Constants are declaration-order dependent (no forward references) because tokenization is single-pass.

@@ -213,17 +213,20 @@ char blob[6] = $(
   0xc9, 0x00, 0x22,
   0x7f, 0xe0, 0x0a
 )
-# NOTE: char reads are sign-extended ("C-style"), so 0xe0 compares as -32, not 224.
+# NOTE: char equality is byte-wise, so blob[4] (0xe0) equals both 224 and -32.
 if len(blob) == 6:
   if blob[1] == 0:
     if blob[2] == 34:
-      if blob[4] == -32:
-        if blob[5] == 10:
-          passed += 1; t18 = 1
+      if blob[4] == 224:
+        if blob[4] == -32:
+          if blob[5] == 10:
+            passed += 1; t18 = 1
+          else:
+            print("blob[5] != 10\n")
         else:
-          print("blob[5] != 10\n")
+          print("blob[4] != -32, blob[4] = ", int(blob[4]), "\n")
       else:
-        print("blob[4] != -32, blob[4] = ", int(blob[4]), "\n")
+        print("blob[4] != 224, blob[4] = ", int(blob[4]), "\n")
     else:
       print("blob[2] != 34\n")
   else:

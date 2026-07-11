@@ -3,11 +3,15 @@ set -euo pipefail
 
 usage() {
   cat <<USAGE
-Usage: $0 <source.min64x4> [tag]
+Usage: $0 <source.min64x4 | source.min64x4r> [tag]
 
 Optimizes branch/jump forms for BOTH builds:
   1) default build
   2) build with -D USE_ACCELERATOR
+
+The target ISA is selected by the source extension via compile_min64x4.sh:
+  .min64x4  -> Minimal 64x4 (original)
+  .min64x4r -> Minimal 64x4 Redux
 
 Algorithm:
   - Force all eligible ops to fast/local forms (F*).
@@ -28,7 +32,10 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
 fi
 
 src="$1"
-tag="${2:-$(basename "${src}" .min64x4)}"
+default_tag="$(basename "${src}")"
+default_tag="${default_tag%.min64x4r}"
+default_tag="${default_tag%.min64x4}"
+tag="${2:-$default_tag}"
 
 if [[ ! -f "$src" ]]; then
   echo "Source not found: $src" >&2

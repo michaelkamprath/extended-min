@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<USAGE
-Usage: $0 <source.min64x4> [tag]
+Usage: $0 <source.min64x4 | source.min64x4r> [tag]
 
 Runs full candidate optimization and prints a one-line TSV summary:
   tag  fast  long  align  g_stop_noacc  g_stop_acc  score
@@ -16,7 +16,10 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
 fi
 
 src="$1"
-tag="${2:-$(basename "${src}" .min64x4)}"
+default_tag="$(basename "${src}")"
+default_tag="${default_tag%.min64x4r}"
+default_tag="${default_tag%.min64x4}"
+tag="${2:-$default_tag}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
