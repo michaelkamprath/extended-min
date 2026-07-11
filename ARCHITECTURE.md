@@ -1,7 +1,7 @@
 # Extended Min Interpreter Architecture
 
 ## Scope
-`extended-min.min64x4` is a complete Min language runtime in one assembly file:
+`extended-min.min64x4` is a complete Min language runtime in one assembly file. A parallel port, `extended-min.min64x4r`, targets the Minimal 64x4 Redux; the two files are kept in sync line-for-line and differ only in the Redux instruction-set renames (`STZ/STT/STB/STR/STS` → `SDZ/SDT/SDB/SDR/SDS`), a few fast-vs-long branch forms, and the ISA `#require` pragmas (see `AGENTS.md` for the dual-target sync rules). Everything in this document — memory map, zero-page layout, runtime structure — applies identically to both targets. The runtime is:
 - command-line and RAM entry handling
 - source loading (`use` import support)
 - tokenization
@@ -316,7 +316,7 @@ This design keeps normal execution fast while still providing source-level diagn
 Notable diagnostics now include:
 - `Duplicate constant name` for same-scope constant redefinition.
 - `Duplicate variable name` for same-scope variable redeclaration.
-- `Value overflow` when a value assigned to `char` does not fit `0..255` (constants and typed assignments).
+- `Value overflow` when a value assigned to `char` does not fit `-128..255` (typed assignments; named `char` constants remain `0..255`).
 - `Call stack overflow` when recursion/call depth exceeds the guarded runtime limit.
 - `Buffer overflow` when `append()` is called on a full buffer (`cnt >= max`), or when a sized initializer exceeds the declared capacity.
 - `Buffer empty` when `pop()` is called on a buffer with `cnt == 0`.
@@ -396,7 +396,7 @@ simple-stmt = type, identifier, ['[', expr, ']'], ['@', expr ], ['=', init-expr 
             | 'append', '(', identifier, ',', comp-expr, ')'              (* append element to sized buffer *)
             | 'empty', '(', identifier, ')'                               (* clear element count of buffer *)
 
-constant    = '0x', { hexdigit }                                          (* int HEX number; bare 0x means zero *)
+constant    = '0x', { hexdigit }                                          (* HEX number: int, or long when > 0xffff; bare 0x means zero *)
             | digit, { digit }                                            (* int DEC number *)
 blob-lit    = '$(', { NEWLINE | ',' | constant }, ')'                      (* char byte blob; constants must be 0..255 *)
 factor      = constant
@@ -425,6 +425,8 @@ The `extended-min.min64x4` implementation differs from the baseline EBNF in a fe
 - `use "file"` is processed by the loader pre-pass and skipped by the tokenizer; it is not executed as a runtime statement token.
 - `key()` is not a core keyword in this interpreter file; keyboard/library behavior is expected via imported Min libraries and/or `call` integration.
 - Hex constants require lowercase `0x` prefix and accept uppercase or lowercase hex digits.
+- Inline hex literals wider than 16 bits (e.g. `0x12345678`) tokenize as `long` constants. Hex values `0x8000`..`0xffff` stay `int` bit patterns (so addresses and masks keep int type), unlike decimal literals >= 32768, which promote to `long`.
+- `char` assignment accepts `-128..255` (the low byte is stored). Equality (`==`, `!=`) with a `char` on either side compares the low 8 bits of both operands, so a stored `0xe0` equals `224`, `0xe0`, and `-32` alike. Ordering (`<`, `<=`, `>`, `>=`), arithmetic, and the `int()` cast treat chars as signed `-128..127` ("C-style", matching slu4 Min) — so `c < 0` tests the high bit, and `int(c)` of byte `0xe0` yields `-32`. Comparisons against `long` values use the full signed value (no byte-wise equality). Named `char` constants (`:=`) remain `0..255` (their grammar has no sign).
 - Constants behavior is tokenizer-time substitution, so declarations do not exist as runtime statements.
 - Long arithmetic now covers add/sub/mul/div/bitwise/shift/compare operations, plus `+=` and `-=` fast paths.
 - Constants are declaration-order dependent (no forward references) because tokenization is single-pass.

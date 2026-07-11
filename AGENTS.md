@@ -1,10 +1,27 @@
 # Extended Min Agent Guide
 
-This directory contains the `Extended Min` interpreter for the Minimal 64x4 TTL computer.
+This directory contains the `Extended Min` interpreter for the Minimal 64x4 TTL computer and its improved variant, the Minimal 64x4 Redux.
 
-The main source file is:
+The main source files are:
 
-- `extended-min.min64x4`
+- `extended-min.min64x4`: targets the original Minimal 64x4
+- `extended-min.min64x4r`: targets the Minimal 64x4 Redux
+
+## Dual-Target Sync Rules
+
+The two source files are kept in sync line-for-line. The only intended differences are:
+
+- the Redux renames the A-store instruction family: `STZ/STT/STB/STR/STS` (original) is `SDZ/SDT/SDB/SDR/SDS` (Redux). On the Redux, `STZ` and `STT` still exist but are *two-operand subtraction instructions* — a missed rename fails to assemble because the operand counts do not match.
+- a handful of fast-vs-long branch form differences. Both machines resolve a fast branch's target page from the *operand fetch* address, but the two files' layouts differ slightly (renames, pragmas), so different branches land near page edges in each; the extra long-branch bytes shift downstream layout, which can cascade. BespokeASM enforces the page rule at compile time.
+- On both machines the fast-op target page resolves from the *operand fetch* position, so a fast op whose opcode sits at the last byte of a page targets the *next* page. The BespokeASM configs enforce this (`match_on_argument_bytcode: true` on `address_lsb`); the Redux config was missing that flag until 2026-07-10 (symptom on hardware: corrupted tokenization, nonsense early errors like `Invalid expr` on a plain constant). If such symptoms appear after a layout change, verify the fetched config has the flag before debugging the interpreter.
+- the `#require __LANGUAGE_NAME__` / `__LANGUAGE_VERSION__` pragmas and the file header.
+
+Rules:
+
+- apply every functional change to both files
+- write new code so it is correct on both machines (see the A register caveat below for the Redux difference in `CIT`/`CIB`/`CIZ`)
+- compile all four builds after meaningful changes: default and `USE_ACCELERATOR` for each target
+- do not assume a fast branch valid in one file is valid in the other; let the assembler decide and convert to the long form where needed
 
 The architecture and language behavior are described in:
 
@@ -31,7 +48,8 @@ This is not a small library. Most changes affect multiple phases of the interpre
 
 ## Key Directories
 
-- `extended-min.min64x4`: the interpreter implementation
+- `extended-min.min64x4`: the interpreter implementation (Minimal 64x4)
+- `extended-min.min64x4r`: the interpreter implementation (Minimal 64x4 Redux)
 - `ARCHITECTURE.md`: required reference for runtime structure and memory model
 - `lib/`: Min/XMin helper libraries used by interpreted programs
 - `software/`: sample programs
@@ -74,19 +92,21 @@ bespokeasm compile -c /path/to/slu4-minimal-64x4.yaml -n -p -t intel_hex -D USE_
 
 If available, use the local compile helper workflow instead of hand-rolling commands.
 
-Repo-local compile helper:
+Repo-local compile helper (the source extension selects the instruction-set config):
 
 ```bash
 skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4
 skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4 -- -D USE_ACCELERATOR
+skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4r
+skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4r -- -D USE_ACCELERATOR
 ```
 
-That helper fetches the Minimal 64x4 BespokeASM config from the BespokeASM GitHub repo into `/tmp` and avoids depending on host-specific absolute paths.
+That helper fetches the matching Minimal 64x4 or Minimal 64x4 Redux BespokeASM config from the BespokeASM GitHub repo into `/tmp` and avoids depending on host-specific absolute paths.
 
-Both of these builds should compile after meaningful changes:
+All four builds should compile after meaningful changes:
 
-- default build
-- `USE_ACCELERATOR` build
+- default build (both targets)
+- `USE_ACCELERATOR` build (both targets)
 
 Runtime execution cannot normally be done in a generic local environment. `xmin` runs on the Minimal 64x4 hardware. Compile validation is necessary but not sufficient.
 
@@ -355,7 +375,11 @@ The Minimal 64x4 ISA has many compound instructions that replace common multi-in
 - `LDB addr CPI imm` → `CIB imm,addr` (same A caveat)
 - `LDB a CPB b` → `CBB b,a` (note operand reversal: `CBB addr1,addr2` computes `A = *addr2 - *addr1`)
 
-**CRITICAL: The A register caveat.** `CIT`, `CIB`, `CBB`, and all `Mxx` compound moves set A to a value different from the original `LDx` sequence. If subsequent code uses A (e.g., a `CPI` chain, `STx`, `PHS`, `ADI`, or any ALU operation), the replacement is **unsafe**. Always verify A is dead or overwritten before the next use. Common traps:
+**CRITICAL: The A register caveat.** `CIT`, `CIB`, `CBB`, and all `Mxx` compound moves set A to a value different from the original `LDx` sequence. If subsequent code uses A (e.g., a `CPI` chain, `STx`, `PHS`, `ADI`, or any ALU operation), the replacement is **unsafe**. Always verify A is dead or overwritten before the next use.
+
+**Redux difference:** on the Minimal 64x4 Redux, `CIZ`/`CIT`/`CIB`/`CZZ`/`CBB` behave like the literal `LDx` + `CPx` sequence — A holds the *loaded value*, not the difference. The traps below do not exist on the Redux. However, because the two source files are kept in sync, treat A as dead after these compares in new code so it is correct on both machines.
+
+Common traps (original Minimal 64x4):
 - `LDB x CPI 3 FEQ label` followed by `CPI 1` — the second `CPI` needs A = *x, not A = *x - 3
 - `LDB x CPI '-' FNE label` followed by `STR y` — the `STR` needs A = *x to store the loaded value
 

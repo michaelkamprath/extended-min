@@ -1,6 +1,17 @@
 # Extended Min
 Adds functionality to the original Min programming language for the [Minimal 64x4 Home Computer by Carsten Herting](https://github.com/slu4coder/Minimal-64x4-Home-Computer/tree/main). Based on Carsten's original work.
 
+Two target machines are supported from parallel sources:
+
+- `extended-min.min64x4` — the original Minimal 64x4
+- `extended-min.min64x4r` — the Minimal 64x4 Redux
+
+The two files are kept in sync; the only intended differences are the Redux
+instruction-set renames (the A-store family `STZ/STT/STB/STR/STS` is named
+`SDZ/SDT/SDB/SDR/SDS` on the Redux), a handful of branch-form differences
+required by the Redux fast-branch page rule, and the ISA `#require` pragmas.
+Functional changes must be applied to both files.
+
 The primary enhancements to Min in this extended version include:
 - Support for various hardware expansion cards made for the Minimal 64x4, notably the [multiplication accelerator](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier)
 - Additions of typed compile-time constants to avoid the use of magic numbers and repeated string literals.
@@ -18,6 +29,12 @@ Extended Min must be built with [the BespokeASM assembler](https://github.com/mi
 
 ```bash
 bespokeasm compile -c /path/to/slu4-minimal-64x4.yaml -n -p -t intel_hex extended-min.min64x4
+```
+
+For the Minimal 64x4 Redux, build the Redux source against the Redux instruction-set configuration instead:
+
+```bash
+bespokeasm compile -c /path/to/slu4-minimal-64x4-redux.yaml -n -p -t intel_hex extended-min.min64x4r
 ```
 
 The resulting Intel Hex output is then transferred to the Minimal 64x4 via the UART connection using its `receive` command. Once downloaded to the Minimal 64x4, pay attention to the start and stop address of the downloaded Intel Hex, then save the code to a program file on the Minimal 64x4 with the command `save XXXX YYYYY xmin`, where `XXXX` is the start address (typically hex 1000) and `YYYY` is the stop address (something around hex 3B00). 
@@ -39,7 +56,7 @@ Current skills:
 - `bespokeasm` installed and available on `PATH`
 - either `curl` or `wget` available on `PATH`
 
-The compile skill fetches the Minimal 64x4 BespokeASM configuration from the BespokeASM GitHub repository into `/tmp`, so the skills do not depend on host-specific absolute paths.
+The compile skill fetches the Minimal 64x4 (or Minimal 64x4 Redux, for `*.min64x4r` sources) BespokeASM configuration from the BespokeASM GitHub repository into `/tmp`, so the skills do not depend on host-specific absolute paths.
 
 ### Using the compile skill
 
@@ -52,6 +69,8 @@ Direct script usage:
 ```bash
 skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4
 skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4 -- -D USE_ACCELERATOR
+skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4r
+skills/compile-min-64x4/scripts/compile_min64x4.sh extended-min.min64x4r -- -D USE_ACCELERATOR
 ```
 
 ### Using the `optimize-size` skill
@@ -112,9 +131,9 @@ Multiple simple statements may be written on one line with `;`.
 
 Extended Min supports three runtime scalar types:
 
-- `char` : 8-bit unsigned value
-- `int` : 16-bit signed value
-- `long` : 32-bit signed value
+- `char` : 8-bit byte value (see [char semantics](#char-values-assignment-and-reads) below)
+- `int` : 16-bit signed value (`-32768` to `32767`)
+- `long` : 32-bit signed value (`-2147483648` to `2147483647`)
 
 Examples:
 
@@ -122,6 +141,66 @@ Examples:
 char c = 65
 int n = 1234
 long big = 70000
+```
+
+### Char values: assignment and reads
+
+A `char` stores one byte. Assignment accepts any value from `-128` to `255` and
+stores the low byte; values outside that range raise "Value overflow".
+Equality (`==`, `!=`) with a `char` on either side compares the low 8 bits of
+both operands, so a stored byte matches whichever notation you prefer —
+unsigned decimal, hex, or signed:
+
+```xmin
+char c = 224          # stores byte 0xE0; char c = 0xe0 or char c = -32 store the same byte
+if c == 224:          # true
+if c == 0xe0:         # true
+if c == -32:          # true
+if c != 225:          # true
+```
+
+Ordering (`<`, `<=`, `>`, `>=`), arithmetic, and the `int()` cast treat chars
+as signed `-128..127` ("C-style", matching original Min), so `c < 0` is true
+for any byte `>= 0x80`, and `int(c)` for the byte `0xE0` yields `-32`. Named
+`char` constants (`:=`) accept `0..255` only.
+
+**Chars in arithmetic.** When a `char` appears in an arithmetic expression it
+is read as its *signed* value, and the result of any `+`/`-`/`*`/`/` is an
+`int`. So arithmetic on high-bit bytes goes negative, and printing the result
+shows a decimal number, not a character:
+
+```xmin
+char v = 224          # stores byte 0xE0, reads as -32 in arithmetic
+print(v)              # prints the CHARACTER for byte 0xE0 (chars print as text)
+print(v - 5)          # prints -37  (int result: -32 - 5)
+print(int(v))         # prints -32
+```
+
+For unsigned byte math, mask the `int` result back to its low byte:
+
+```xmin
+print((v - 5) and 0xff)      # prints 219  (224 - 5, as an unsigned byte)
+if char(v - 5) == 219:       # true: char() truncates to byte 0xDB,
+  print("byte match\n")      # which byte-wise-equals 219
+```
+
+Rule of thumb: the byte-wise behavior applies **only to `==` and `!=`**;
+everything else sees a signed value.
+
+### Numeric literal widths
+
+- Decimal literals that do not fit a signed 16-bit `int` (`32768` and up)
+  automatically become `long` constants.
+- Hex literals up to 16 bits (`0x0` through `0xffff`) are `int` bit patterns —
+  so addresses (`@ 0xFE00`) and masks keep `int` type; note `0x8000..0xffff`
+  read back as negative ints.
+- Hex literals wider than 16 bits (e.g. `0x12345678`) become `long` constants.
+
+```xmin
+int mask = 0xff         # 255
+int mmio = 0xfe00       # int bit pattern (reads as -512)
+long big = 40000        # decimal >= 32768 promotes to long
+long word = 0x12345678  # hex wider than 16 bits is long
 ```
 
 ## Casts
@@ -499,6 +578,11 @@ Behavior:
 - `char` payloads print as strings/byte sequences
 - `int` values print in decimal
 - `long` values print in decimal
+
+Note that arithmetic always produces an `int` (or `long`) result, so
+`print(c)` prints a character while `print(c + 0)` or `print(c - 5)` prints a
+signed decimal number — see
+[chars in arithmetic](#char-values-assignment-and-reads).
 
 ## External calls and imports
 

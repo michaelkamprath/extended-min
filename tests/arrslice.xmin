@@ -2,11 +2,11 @@ int passed = 0
 int failed = 0
 int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0; int t7 = 0; int t8 = 0
 
-def show_pass(int n, int s):
+def showpass(int n, int s):
   if s == 1:
     print(n); print(" ")
 
-def show_fail(int n, int s):
+def showfail(int n, int s):
   if s == -1:
     print(n); print(" ")
 
@@ -73,9 +73,9 @@ else:
   failed += 1; t8 = -1
 
 print("PASS ")
-show_pass(1, t1); show_pass(2, t2); show_pass(3, t3); show_pass(4, t4); show_pass(5, t5); show_pass(6, t6); show_pass(7, t7); show_pass(8, t8)
+showpass(1, t1); showpass(2, t2); showpass(3, t3); showpass(4, t4); showpass(5, t5); showpass(6, t6); showpass(7, t7); showpass(8, t8)
 print("\nFAIL ")
-show_fail(1, t1); show_fail(2, t2); show_fail(3, t3); show_fail(4, t4); show_fail(5, t5); show_fail(6, t6); show_fail(7, t7); show_fail(8, t8)
+showfail(1, t1); showfail(2, t2); showfail(3, t3); showfail(4, t4); showfail(5, t5); showfail(6, t6); showfail(7, t7); showfail(8, t8)
 print("\narrslice PASS=")
 print(passed)
 print(" FAIL=")

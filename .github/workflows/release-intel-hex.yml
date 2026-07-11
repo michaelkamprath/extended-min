@@ -32,8 +32,11 @@ jobs:
           set -euo pipefail
 
           cfg="$(skills/compile-min-64x4/scripts/fetch_min64x4_config.sh)"
+          redux_cfg="$(skills/compile-min-64x4/scripts/fetch_min64x4_config.sh --redux)"
           asset_name="extended-min.${RELEASE_TAG}.hex"
           acc_asset_name="extended-min-acc.${RELEASE_TAG}.hex"
+          redux_asset_name="extended-min-redux.${RELEASE_TAG}.hex"
+          redux_acc_asset_name="extended-min-redux-acc.${RELEASE_TAG}.hex"
 
           bespokeasm compile \
             -c "$cfg" \
@@ -50,10 +53,29 @@ jobs:
             -D USE_ACCELERATOR \
             extended-min.min64x4 >"$acc_asset_name"
 
+          bespokeasm compile \
+            -c "$redux_cfg" \
+            -n \
+            -p \
+            -t intel_hex \
+            extended-min.min64x4r >"$redux_asset_name"
+
+          bespokeasm compile \
+            -c "$redux_cfg" \
+            -n \
+            -p \
+            -t intel_hex \
+            -D USE_ACCELERATOR \
+            extended-min.min64x4r >"$redux_acc_asset_name"
+
           test -s "$asset_name"
           test -s "$acc_asset_name"
+          test -s "$redux_asset_name"
+          test -s "$redux_acc_asset_name"
           echo "asset_path=$PWD/$asset_name" >> "$GITHUB_OUTPUT"
           echo "acc_asset_path=$PWD/$acc_asset_name" >> "$GITHUB_OUTPUT"
+          echo "redux_asset_path=$PWD/$redux_asset_name" >> "$GITHUB_OUTPUT"
+          echo "redux_acc_asset_path=$PWD/$redux_acc_asset_name" >> "$GITHUB_OUTPUT"
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
@@ -61,3 +83,5 @@ jobs:
           files: |
             ${{ steps.build.outputs.asset_path }}
             ${{ steps.build.outputs.acc_asset_path }}
+            ${{ steps.build.outputs.redux_asset_path }}
+            ${{ steps.build.outputs.redux_acc_asset_path }}

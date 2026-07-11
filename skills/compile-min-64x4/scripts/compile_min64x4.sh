@@ -3,14 +3,18 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: compile_min64x4.sh <source.min64x4> [-- <extra bespokeasm args>]
+Usage: compile_min64x4.sh <source.min64x4|source.min64x4r> [-- <extra bespokeasm args>]
 
 Compiles a Minimal 64x4 assembly source using BespokeASM and a fetched copy of
-the Minimal 64x4 instruction-set configuration from the BespokeASM GitHub repo.
+the instruction-set configuration from the BespokeASM GitHub repo. Sources
+ending in .min64x4r are compiled against the Minimal 64x4 Redux configuration;
+all other sources use the original Minimal 64x4 configuration.
 
 Examples:
   compile_min64x4.sh extended-min.min64x4
   compile_min64x4.sh extended-min.min64x4 -- -D USE_ACCELERATOR
+  compile_min64x4.sh extended-min.min64x4r
+  compile_min64x4.sh extended-min.min64x4r -- -D USE_ACCELERATOR
 USAGE
 }
 
@@ -50,10 +54,16 @@ if [[ $# -gt 0 ]]; then
   extra_args=("$@")
 fi
 
-cfg="${MIN64X4_CONFIG_PATH:-/tmp/slu4-minimal-64x4.yaml}"
+fetch_args=()
+if [[ "$src" == *.min64x4r ]]; then
+  cfg="${MIN64X4_REDUX_CONFIG_PATH:-/tmp/slu4-minimal-64x4-redux.yaml}"
+  fetch_args=(--redux)
+else
+  cfg="${MIN64X4_CONFIG_PATH:-/tmp/slu4-minimal-64x4.yaml}"
+fi
 
 if [[ ! -s "$cfg" ]]; then
-  "$fetch_script" "$cfg" >/dev/null
+  "$fetch_script" "${fetch_args[@]}" "$cfg" >/dev/null
 fi
 
 if [[ ! -s "$cfg" ]]; then

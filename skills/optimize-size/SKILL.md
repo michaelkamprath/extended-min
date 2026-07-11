@@ -5,7 +5,9 @@ description: Optimize Extended Min code size and branch speed by maximizing vali
 
 # Optimize Size (Fast vs Long Branches/Jumps)
 
-Use this skill when modifying `extended-min.min64x4` and you need to recover size/speed after layout drift.
+Use this skill when modifying `extended-min.min64x4` or `extended-min.min64x4r` and you need to recover size/speed after layout drift.
+
+Both targets are supported: the scripts select the ISA config by source extension via `compile_min64x4.sh` (`.min64x4` = original Minimal 64x4, `.min64x4r` = Minimal 64x4 Redux). Optimize each source file separately — the two machines resolve fast-branch page targets differently (instruction address on Redux vs operand fetch address on the original), so their optimal fast/long mixes differ even for line-identical sources.
 
 ## Goal
 

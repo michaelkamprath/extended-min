@@ -128,10 +128,12 @@ move_single_to_tail() {
   rm -f "$out.tmp" "$line_file"
 }
 
-v_baseline="$tmpdir/v_baseline.min64x4"
-v_bigonly="$tmpdir/v_bigonly.min64x4"
-v_big22="$tmpdir/v_big_plus_22.min64x4"
-v_big33="$tmpdir/v_big_plus_33.min64x4"
+# keep the source extension so compile_min64x4.sh selects the right ISA config
+ext="${src##*.}"
+v_baseline="$tmpdir/v_baseline.${ext}"
+v_bigonly="$tmpdir/v_bigonly.${ext}"
+v_big22="$tmpdir/v_big_plus_22.${ext}"
+v_big33="$tmpdir/v_big_plus_33.${ext}"
 
 cp "$src" "$v_baseline"
 make_bigonly "$src" "$v_bigonly"
