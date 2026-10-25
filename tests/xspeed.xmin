@@ -39,7 +39,8 @@ int N13 := 100
 char Mark := 42
 
 # reference cycle counts per section (0 = not set)
-# these references are from v0.6.0 on a Minimal 64x4
+# these references are from v0.6.0 USE_ACCELERATOR on a Minimal 64x4;
+# compare only USE_ACCELERATOR builds against them
 long R1 := 1620156
 long R2 := 3901478
 long R3 := 6463213
