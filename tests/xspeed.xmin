@@ -1,0 +1,457 @@
+use "timerlib.min"
+
+# -----------------------------------------------
+# General Extended Min benchmark. Sections 1-8
+# time individual language features; sections
+# 9-13 time small whole-program workloads. Each
+# section is timed separately so two interpreter
+# builds can be compared section by section.
+#
+# Run the same file with each xmin build (same
+# target machine and same USE_ACCELERATOR setting).
+# The chk= values must match between builds; the
+# cycle counts are the comparison.
+#
+# Scoring: run once with the reference build (e.g.
+# v0.6.0). It ends by printing "long Rn := ..."
+# lines; paste them over the R1..R13 constants
+# below. Every later run then prints a per-section
+# speed ratio and an overall score, where 1000 =
+# reference speed and 1250 = 25% faster.
+# -----------------------------------------------
+# REQUIRES - Clock timer card and timerlib.min
+# https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/timer
+# -----------------------------------------------
+
+int N1 := 40
+int N2 := 100
+int N3 := 200
+int N4 := 100
+int N5 := 60
+int N6 := 300
+int N7 := 20
+int N8 := 100
+int N9 := 3
+int N10 := 2
+int N11 := 4
+int N12 := 30
+int N13 := 100
+char Mark := 42
+
+# reference cycle counts per section (0 = not set)
+# these references are from v0.6.0 on a Minimal 64x4
+long R1 := 1620156
+long R2 := 3901478
+long R3 := 6463213
+long R4 := 6026720
+long R5 := 3655672
+long R6 := 3330646
+long R7 := 3453290
+long R8 := 1913317
+long R9 := 9782470
+long R10 := 14517690
+long R11 := 9552860
+long R12 := 4537896
+long R13 := 7518816
+
+# low 32 bits of the latched 48-bit cycle counter (8 MHz: ~536 s range)
+long cycles @ 0xfe28
+long total = 0
+long t = 0
+long ts = ts[|13]                 # measured cycles per section
+long rf = long(R1), long(R2), long(R3), long(R4), long(R5), long(R6), long(R7), long(R8), long(R9), long(R10), long(R11), long(R12), long(R13)
+
+def addc(char a, char b):
+  return int(a) + int(b)
+
+def addi(int a, int b):
+  return a + b
+
+def addl(long a, long b):
+  return a + b
+
+def bump(long &x):
+  x += 1
+
+def fact(int n):
+  if n <= 1:
+    return 1
+  return n * fact(n - 1)
+
+def inner(int u, int v):
+  int w = u + v
+  return w and 0x0fff
+
+def mix(int a, int b, int c):
+  int d = a + b
+  int e = b + c
+  int f = d xor e
+  int g = (f and 0xff) + a
+  int h = g - c
+  return inner(h, d) + e
+
+def report(int n, long tt, long chk):
+  output(n); output(" cyc="); output(tt); output(" ms="); output(tt / 8000)
+  output(" chk="); output(chk); output("\n")
+
+output("XSPEED\n")
+int i = 0
+
+# 1. long multiply and divide: signs, multi-byte divisors, exact quotient
+long la = 123456
+long lb = -long(789)
+long lacc = 0
+timerReset()
+i = 0
+while i < N1:
+  long p = la * long(i + 1)
+  long m = lb * long(i)
+  lacc = lacc + p / 1234 + (-p) / lb + p / 300000 + p / p + m
+  i += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[0] = t
+report(1, t, lacc)
+
+# 2. long add/sub, bitwise, shifts, not, negate, compares, += / -=
+long x = 0x12345678
+long acc2 = 0
+timerReset()
+i = 0
+while i < N2:
+  x = x + 0x01010101 - 77
+  long y = (x xor 0x0f0f0f0f) and 0x7fffffff
+  y = y or 0x10
+  long z = (y << 3) >> 5
+  acc2 += 3
+  acc2 -= 1
+  if z > y:
+    acc2 += 5
+  if x != y:
+    acc2 = acc2 + 1
+  acc2 = acc2 + ((not z) + z) - ((-z) + z)
+  i += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[1] = t
+report(2, t, acc2 + x)
+
+# 3. int multiply, divide, and shifts
+int acc3 = 0
+timerReset()
+i = 1
+while i < N3:
+  int a = i * 37
+  int b = a / 7
+  int c = (a << 2) >> 3
+  int d = a / (-3)
+  int e = (b * c) and 0xff
+  acc3 = (acc3 + b + c - d + e) and 0x3fff
+  acc3 = acc3 xor (i << 1)
+  i += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[2] = t
+report(3, t, long(acc3))
+
+# 4. scalar reads/assignments, indexed access, slices, whole-array copy
+char cs = 65
+int iv = 12
+long ls = 0x01020304
+char ca[20] = "ABCDEFGHIJKLMNOP"
+char cb[20]
+int ia = ia[|16]
+long lq = lq[|16]
+int acc4 = 0
+long acc4l = 0
+timerReset()
+i = 0
+while i < N4:
+  int k = i and 15
+  char c2 = cs
+  int i2 = iv
+  long l2 = ls
+  ca[k] = c2
+  ia[k] = i2
+  lq[k] = l2
+  c2 = ca[k]
+  i2 = ia[k]
+  l2 = lq[k]
+  int i3 = ia[k|k + 1]
+  char sl = ca[2|6]
+  cb = ca
+  acc4 = acc4 + i2 + i3 + len(sl) + int(c2) + int(cb[15])
+  acc4l = acc4l + l2
+  i += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[3] = t
+report(4, t, acc4l + long(acc4))
+
+# 5. user function calls: char/int/long params, by-ref, recursion
+int acc5 = 0
+long lsum = 0
+timerReset()
+i = 0
+while i < N5:
+  acc5 = acc5 + addi(i, 3)
+  acc5 = acc5 + addc(char(i), cs)
+  lsum = lsum + addl(long(i), 100000)
+  bump(lsum)
+  acc5 = acc5 + fact(5)
+  i += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[4] = t
+report(5, t, lsum + long(acc5))
+
+# 6. control flow, constants, break
+int acc6 = 0
+timerReset()
+i = 0
+while i < N6:
+  if i < 100:
+    acc6 += 1
+  elif i < 200:
+    acc6 += 2
+  else:
+    acc6 -= 1
+  if (i and 7) == 0:
+    acc6 = acc6 + Mark
+  i += 1
+i = 0
+while i < 1000:
+  i += 1
+  if i >= 200:
+    break
+acc6 = acc6 + i
+timerLatch()
+t = cycles
+total = total + t
+ts[5] = t
+report(6, t, long(acc6))
+
+# 7. list ops, concatenation, len/sizeof, casts
+int stk[64]
+long lst[32]
+int acc7 = 0
+timerReset()
+i = 0
+while i < N7:
+  empty(stk)
+  int j = 0
+  while j < 16:
+    append(stk, j * 3)
+    j += 1
+  while len(stk) > 0:
+    acc7 = acc7 + pop(stk)
+  empty(lst)
+  append(lst, long(i) * 1000)
+  long lv = pop(lst)
+  acc7 = acc7 + int(lv / 1000)
+  char s = "AB" _ "CD" _ char(65 + i)
+  acc7 = acc7 + len(s) + int(s[4]) + sizeof(stk)
+  acc7 = acc7 + int(char(i + 200))
+  i += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[6] = t
+report(7, t, long(acc7))
+
+# 8. hex blob with int/long @ views
+char raw = $(0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08)
+int wv[4] @ &raw
+long qv[2] @ &raw
+int acc8 = 0
+timerReset()
+i = 0
+while i < N8:
+  acc8 = acc8 + (wv[i and 3] and 0xff)
+  long q = qv[i and 1]
+  acc8 = acc8 + int(q and 0xff)
+  i += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[7] = t
+report(8, t, long(acc8))
+
+# 9. insertion sort of pseudo-random int arrays (expected chk=6120)
+int arr = arr[|32]
+int seed = 1234
+int acc9 = 0
+int r = 0
+timerReset()
+r = 0
+while r < N9:
+  i = 0
+  while i < 32:
+    seed = (seed * 75 + 74) and 0x7fff
+    arr[i] = seed
+    i += 1
+  i = 1
+  while i < 32:
+    int key = arr[i]
+    int j = i - 1
+    while j >= 0:
+      if arr[j] <= key:
+        break
+      arr[j + 1] = arr[j]
+      j -= 1
+    arr[j + 1] = key
+    i += 1
+  acc9 = (acc9 + arr[0] + arr[16] + arr[31]) and 0x3fff
+  r += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[8] = t
+report(9, t, long(acc9))
+
+# 10. sieve of Eratosthenes over a char array (expected chk=156: 78 primes x 2)
+char sv = sv[|400]
+int acc10 = 0
+timerReset()
+r = 0
+while r < N10:
+  i = 0
+  while i < 400:
+    sv[i] = 1
+    i += 1
+  i = 2
+  while i * i < 400:
+    if sv[i]:
+      int j = i * i
+      while j < 400:
+        sv[j] = 0
+        j = j + i
+    i += 1
+  i = 2
+  while i < 400:
+    if sv[i]:
+      acc10 += 1
+    i += 1
+  r += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[9] = t
+report(10, t, long(acc10))
+
+# 11. string processing: upper-case, reverse, count vowels, compare
+char text = "The Quick Brown Fox Jumps Over The Lazy Dog 0123456789"
+char up[64]
+char rev[64]
+int acc11 = 0
+timerReset()
+r = 0
+while r < N11:
+  int n = len(text)
+  int vow = 0
+  i = 0
+  while i < n:
+    char ch = text[i]
+    if (ch >= 97) and (ch <= 122):
+      ch = char(ch - 32)
+    up[i] = ch
+    rev[n - 1 - i] = ch
+    if (ch == 65) or (ch == 69) or (ch == 73) or (ch == 79) or (ch == 85):
+      vow += 1
+    i += 1
+  int same = 0
+  i = 0
+  while i < n:
+    if up[i] == rev[n - 1 - i]:
+      same += 1
+    i += 1
+  acc11 = acc11 + vow + same + int(up[4])
+  r += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[10] = t
+report(11, t, long(acc11))
+
+# 12. long arithmetic workload: Collatz step counts for 1..N12 (expected chk=441)
+long acc12 = 0
+long ln = 0
+timerReset()
+r = 1
+while r <= N12:
+  ln = long(r)
+  while ln != 1:
+    if (ln and 1) == 0:
+      ln = ln >> 1
+    else:
+      ln = ln * 3 + 1
+    acc12 += 1
+  r += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[11] = t
+report(12, t, acc12)
+
+# 13. many-variable lookups and nested calls with locals
+int g1 = 1
+int g2 = 2
+int g3 = 3
+int g4 = 4
+int g5 = 5
+int g6 = 6
+int acc13 = 0
+timerReset()
+i = 0
+while i < N13:
+  g1 = (g1 + 3) and 0xff
+  g2 = (g2 + g1) and 0xff
+  g3 = (g3 xor g2) and 0xff
+  g4 = (g4 + g3 + g1) and 0xff
+  g5 = (g5 xor g4) and 0xff
+  g6 = (g6 + g5 - g2) and 0xff
+  acc13 = (acc13 + mix(i, g3, g6)) and 0x3fff
+  i += 1
+timerLatch()
+t = cycles
+total = total + t
+ts[12] = t
+report(13, t, long(acc13))
+
+output("total cyc="); output(total); output(" ms="); output(total / 8000); output("\n")
+
+# score: per-section ratio reference/measured x 1000, averaged with equal weight
+# (divisions round to nearest so a few cycles of run-to-run jitter do not truncate 1000 to 999)
+long ssum = 0
+long rtot = 0
+int nref = 0
+output("\nSCORE (1000 = reference)\n")
+i = 0
+while i < 13:
+  if rf[i] > 0:
+    long d = (ts[i] + 500) / 1000
+    long sc = (rf[i] + d / 2) / d
+    output(i + 1); output(" "); output(sc); output("\n")
+    ssum = ssum + sc
+    rtot = rtot + rf[i]
+    nref += 1
+  i += 1
+if nref > 0:
+  output("score="); output((ssum + long(nref / 2)) / long(nref))
+  output(" (sections="); output(nref); output(")\n")
+  if nref == 13:
+    long dt = (total + 500) / 1000
+    output("total time ratio="); output((rtot + dt / 2) / dt); output("\n")
+else:
+  output("no reference set\n")
+
+output("\nReference lines for this build:\n")
+i = 0
+while i < 13:
+  output("long R"); output(i + 1); output(" := "); output(ts[i]); output("\n")
+  i += 1

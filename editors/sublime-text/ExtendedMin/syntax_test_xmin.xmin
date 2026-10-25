@@ -1,0 +1,84 @@
+# SYNTAX TEST "Packages/ExtendedMin/ExtendedMin.sublime-syntax"
+use "timerlib.min"
+# <- keyword.control.import.xmin
+#   ^ punctuation.definition.string.begin.xmin
+#   ^^^^^^^^^^^^^^ string.quoted.double.xmin
+#                ^ punctuation.definition.string.end.xmin
+
+int Limit := 300
+# <- storage.type.xmin
+#   ^^^^^ variable.other.constant.xmin
+#         ^^ keyword.operator.assignment.constant.xmin
+#            ^^^ constant.numeric.integer.decimal.xmin
+
+long cycles @ 0xfe28
+#    ^^^^^^ variable.other.declaration.xmin
+#           ^ keyword.operator.address.xmin
+#             ^^^^^^ constant.numeric.integer.hexadecimal.xmin
+#             ^^ punctuation.definition.numeric.base.xmin
+
+int v[4] = 1, 2, 3
+#    ^ punctuation.section.brackets.begin.xmin
+#      ^ punctuation.section.brackets.end.xmin
+#           ^ punctuation.separator.sequence.xmin
+
+def bump(long &x, int n):
+# <- keyword.declaration.function.xmin
+#   ^^^^ entity.name.function.xmin
+#       ^ punctuation.section.parameters.begin.xmin
+#        ^^^^ support.type.xmin
+#             ^ storage.modifier.reference.xmin
+#              ^ variable.parameter.xmin
+#               ^ punctuation.separator.parameters.xmin
+#                      ^ punctuation.section.parameters.end.xmin
+#                       ^ punctuation.section.function.begin.xmin
+  x += long(n)
+# ^ variable.other.xmin
+#   ^^ keyword.operator.assignment.augmented.xmin
+#      ^^^^ support.type.xmin
+#          ^ punctuation.section.arguments.begin.xmin
+#            ^ punctuation.section.arguments.end.xmin
+
+char msg = "HI\n" _ char(65)
+#              ^^ constant.character.escape.xmin
+#                 ^ keyword.operator.concatenation.xmin
+char raw = $(0x01, 0x02)
+#          ^ storage.type.string.xmin
+#           ^ punctuation.section.blob.begin.xmin
+#            ^^^^ constant.numeric.integer.hexadecimal.xmin
+#                ^ punctuation.separator.blob.xmin
+#                      ^ punctuation.section.blob.end.xmin
+
+while (len(msg) > 0) and not 0:
+# <- keyword.control.loop.while.xmin
+#     ^ punctuation.section.group.begin.xmin
+#      ^^^ support.function.builtin.xmin
+#             ^ punctuation.section.arguments.end.xmin
+#                  ^ punctuation.section.group.end.xmin
+#                    ^^^ keyword.operator.logical.xmin
+#                             ^ punctuation.section.block.loop.xmin
+  if x << 2 >= 8:
+# ^^ keyword.control.conditional.if.xmin
+#      ^^ keyword.operator.bitwise.xmin
+#           ^^ keyword.operator.comparison.xmin
+#                ^ punctuation.section.block.conditional.xmin
+    output(msg[0|1], 2); bump(t, 1)  # trailing comment
+#   ^^^^^^ support.function.builtin.xmin
+#             ^ punctuation.section.brackets.begin.xmin
+#               ^ punctuation.separator.slice.xmin
+#                  ^ punctuation.separator.arguments.xmin
+#                      ^ punctuation.terminator.statement.xmin
+#                        ^^^^ variable.function.xmin
+#                                    ^ punctuation.definition.comment.xmin
+#                                    ^^^^^^^^^^^^^^^^^^ comment.line.number-sign.xmin
+  elif x:
+# ^^^^ keyword.control.conditional.elseif.xmin
+  else:
+# ^^^^ keyword.control.conditional.else.xmin
+#     ^ punctuation.section.block.conditional.xmin
+    break
+#   ^^^^^ keyword.control.flow.break.xmin
+return 0
+# <- keyword.control.flow.return.xmin
+call 0xf033
+# <- keyword.control.flow.call.xmin

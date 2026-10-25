@@ -78,6 +78,8 @@ Do not trade correctness or memory safety for a small optimization.
 
 This code is assembled with BespokeASM, not the original Minimal 64 assembler.
 
+Use the globally installed `bespokeasm` on `PATH`. If it is missing or broken, ask the user to repair the installation. Do not search for or substitute local development installations.
+
 Typical compile command in order to produce the Intel Hex formatted byte code to transfer the Minimal 64x4 via it's `receive` command:
 
 ```bash
@@ -295,12 +297,20 @@ Run a short smoke set such as:
 - `tests/m2varcon.xmin`
 - `tests/m2ctrlfl.xmin`
 - `tests/m2augasg.xmin`
+- `tests/m3scalar.xmin`
 - `tests/m1cmplng.xmin`
 - `tests/arrslice.xmin`
 
 ### For constants work
 
 - `tests/p2consts.xmin`
+
+### For variable reads, assignments, or copy loops
+
+- `tests/m3scalar.xmin`
+- `tests/arrslice.xmin`
+
+Cover all three element widths, zero and multiple elements, counts above 255, page crossings, and indexed writes that preserve adjacent elements and counts.
 
 ### For long and expression work
 
@@ -314,6 +324,7 @@ Run a short smoke set such as:
 - `tests/p4longs1.xmin`
 - `tests/p5opsctl.xmin`
 - `tests/m2varcon.xmin`
+- `tests/m3scalar.xmin`
 
 ## Hardware Benchmarking
 
@@ -337,6 +348,7 @@ Use timer-based benchmarks instead of subjective timing. Record:
 - Prefer small, isolated changes.
 - Update comments when changing memory layout or invariants.
 - Preserve ASCII.
+- Do not hard-wrap Markdown text within a paragraph or list item. Keep each paragraph or list item on one source line and rely on the renderer or editor for soft wrapping. Preserve structural line breaks, code blocks, and tables.
 - Keep labels and symbol names consistent with existing style.
 - If a fix changes semantics, add or update a focused test in `tests/`.
 - If a change is structural, update `ARCHITECTURE.md`.

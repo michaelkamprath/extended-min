@@ -7,7 +7,7 @@ description: Optimize Extended Min code size and branch speed by maximizing vali
 
 Use this skill when modifying `extended-min.min64x4` or `extended-min.min64x4r` and you need to recover size/speed after layout drift.
 
-Both targets are supported: the scripts select the ISA config by source extension via `compile_min64x4.sh` (`.min64x4` = original Minimal 64x4, `.min64x4r` = Minimal 64x4 Redux). Optimize each source file separately — the two machines resolve fast-branch page targets differently (instruction address on Redux vs operand fetch address on the original), so their optimal fast/long mixes differ even for line-identical sources.
+Both targets are supported: the scripts select the ISA config by source extension via `compile_min64x4.sh` (`.min64x4` = original Minimal 64x4, `.min64x4r` = Minimal 64x4 Redux). Both machines resolve fast-branch target pages from the operand-fetch address. Verify `match_on_argument_bytcode: true` on `address_lsb` in both configs: an opcode at `xxFF` uses the next page. Optimize each source file separately because their layouts and optimal fast/long mixes can differ.
 
 ## Goal
 

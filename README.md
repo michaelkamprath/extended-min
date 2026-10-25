@@ -6,11 +6,9 @@ Two target machines are supported from parallel sources:
 - `extended-min.min64x4` — the original Minimal 64x4
 - `extended-min.min64x4r` — the Minimal 64x4 Redux
 
-The two files are kept in sync; the only intended differences are the Redux
-instruction-set renames (the A-store family `STZ/STT/STB/STR/STS` is named
-`SDZ/SDT/SDB/SDR/SDS` on the Redux), a handful of branch-form differences
-required by the Redux fast-branch page rule, and the ISA `#require` pragmas.
-Functional changes must be applied to both files.
+The two files are kept in sync; the only intended differences are the Redux instruction-set renames (the A-store family `STZ/STT/STB/STR/STS` is named `SDZ/SDT/SDB/SDR/SDS` on the Redux), a handful of branch-form differences required by each source's layout, and the ISA `#require` pragmas. Functional changes must be applied to both files.
+
+Both machines resolve fast-branch targets from the operand-fetch page. An opcode at `xxFF` therefore targets the next page; the assembler configurations must enforce this rule for both targets.
 
 The primary enhancements to Min in this extended version include:
 - Support for various hardware expansion cards made for the Minimal 64x4, notably the [multiplication accelerator](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier)
@@ -37,14 +35,13 @@ For the Minimal 64x4 Redux, build the Redux source against the Redux instruction
 bespokeasm compile -c /path/to/slu4-minimal-64x4-redux.yaml -n -p -t intel_hex extended-min.min64x4r
 ```
 
-The resulting Intel Hex output is then transferred to the Minimal 64x4 via the UART connection using its `receive` command. Once downloaded to the Minimal 64x4, pay attention to the start and stop address of the downloaded Intel Hex, then save the code to a program file on the Minimal 64x4 with the command `save XXXX YYYYY xmin`, where `XXXX` is the start address (typically hex 1000) and `YYYY` is the stop address (something around hex 3B00). 
+The resulting Intel Hex output is then transferred to the Minimal 64x4 via the UART connection using its `receive` command. Save the code with `save XXXX YYYY xmin`, using the actual start and stop addresses reported for that download. The start is typically hex 1000; the stop depends on the target and build options.
 
 Alternatively, use the Intel Hex compilation of [the most recent release of Extended Min](https://github.com/michaelkamprath/extended-min/releases) from the releases in this repository on GitHub. Note that the `acc` variant is intended to be used with the [multiplier accelerator card](https://github.com/michaelkamprath/minimal-64x4-expansion-cards/tree/main/multiplier).
 
 ## Skills
 
-This repository includes local Codex skills under [`skills/`](./skills).
-They are intended to make common Extended Min workflows reusable and portable within this repo.
+This repository includes local Codex skills under [`skills/`](./skills). They are intended to make common Extended Min workflows reusable and portable within this repo.
 
 Current skills:
 
@@ -53,7 +50,7 @@ Current skills:
 
 ### Skill requirements
 
-- `bespokeasm` installed and available on `PATH`
+- the globally installed `bespokeasm` available on `PATH`
 - either `curl` or `wget` available on `PATH`
 
 The compile skill fetches the Minimal 64x4 (or Minimal 64x4 Redux, for `*.min64x4r` sources) BespokeASM configuration from the BespokeASM GitHub repository into `/tmp`, so the skills do not depend on host-specific absolute paths.
@@ -92,6 +89,30 @@ skills/optimize-size/scripts/collect_metrics.sh \
 
 The optimize-size skill depends only on the repo-local compile skill and the standard host tools listed above.
 
+Optimize the original and Redux sources separately, then compile all four target/build combinations. Runtime copy paths, stack conventions, and memory ownership are documented in [ARCHITECTURE.md](./ARCHITECTURE.md). See [tests/README.md](./tests/README.md) for hardware regression suites, including `m3scalar.xmin` for scalar reads and assignments.
+
+
+## Editor Support
+
+Syntax highlighting for `*.xmin` files is available for Sublime Text in [`editors/sublime-text/`](./editors/sublime-text/) and for Visual Studio Code in [`editors/vscode/`](./editors/vscode/). Both use the same scope names and include comment toggling and auto-indent.
+
+To install, run the matching command from the repository root. It links the editor package from the repo, so later updates take effect directly.
+
+Sublime Text (macOS; Linux uses `~/.config/sublime-text/Packages`):
+
+```bash
+ln -s "$PWD/editors/sublime-text/ExtendedMin" \
+  "$HOME/Library/Application Support/Sublime Text/Packages/ExtendedMin"
+```
+
+Visual Studio Code (macOS and Linux), then reload VS Code:
+
+```bash
+ln -s "$PWD/editors/vscode/extended-min" \
+  "$HOME/.vscode/extensions/michaelkamprath.extended-min-0.1.0"
+```
+
+Windows commands, uninstalling, and color customization are covered in [the Sublime Text README](./editors/sublime-text/README.md) and [the VS Code README](./editors/vscode/README.md).
 
 ## File Extension Convention
 Any file ending in `*.min` should be runnable by both Carsten's original Min and this Extended Min, with one exception: if the Min code performs a type change operation (e.g., assign an `int` value to a `char` type), Extended Min will throw an error given its new guards against silent value truncation. If that value truncation is something you do want, introduce the explicit cast operation to the code, and make the file an `*.xmin` type as the original Min does not support type casting.
@@ -104,8 +125,7 @@ This section is for writing Extended Min programs with file extensions of `*.xmi
 
 ## Program structure
 
-Extended Min is line-oriented and indentation-sensitive.
-Blocks may use either:
+Extended Min is line-oriented and indentation-sensitive. Blocks may use either:
 
 - a newline followed by deeper indentation
 - a trailing `:` before that indented block
@@ -124,8 +144,7 @@ def add(int a, int b):
   return a + b
 ```
 
-Comments start with `#`.
-Multiple simple statements may be written on one line with `;`.
+Comments start with `#`. Multiple simple statements may be written on one line with `;`.
 
 ## Types
 
@@ -145,11 +164,7 @@ long big = 70000
 
 ### Char values: assignment and reads
 
-A `char` stores one byte. Assignment accepts any value from `-128` to `255` and
-stores the low byte; values outside that range raise "Value overflow".
-Equality (`==`, `!=`) with a `char` on either side compares the low 8 bits of
-both operands, so a stored byte matches whichever notation you prefer —
-unsigned decimal, hex, or signed:
+A `char` stores one byte. Assignment accepts any value from `-128` to `255` and stores the low byte; values outside that range raise "Value overflow". Equality (`==`, `!=`) with a `char` on either side compares the low 8 bits of both operands, so a stored byte matches whichever notation you prefer — unsigned decimal, hex, or signed:
 
 ```xmin
 char c = 224          # stores byte 0xE0; char c = 0xe0 or char c = -32 store the same byte
@@ -159,15 +174,9 @@ if c == -32:          # true
 if c != 225:          # true
 ```
 
-Ordering (`<`, `<=`, `>`, `>=`), arithmetic, and the `int()` cast treat chars
-as signed `-128..127` ("C-style", matching original Min), so `c < 0` is true
-for any byte `>= 0x80`, and `int(c)` for the byte `0xE0` yields `-32`. Named
-`char` constants (`:=`) accept `0..255` only.
+Ordering (`<`, `<=`, `>`, `>=`), arithmetic, and the `int()` cast treat chars as signed `-128..127` ("C-style", matching original Min), so `c < 0` is true for any byte `>= 0x80`, and `int(c)` for the byte `0xE0` yields `-32`. Named `char` constants (`:=`) accept `0..255` only.
 
-**Chars in arithmetic.** When a `char` appears in an arithmetic expression it
-is read as its *signed* value, and the result of any `+`/`-`/`*`/`/` is an
-`int`. So arithmetic on high-bit bytes goes negative, and printing the result
-shows a decimal number, not a character:
+**Chars in arithmetic.** When a `char` appears in an arithmetic expression it is read as its *signed* value, and the result of any `+`/`-`/`*`/`/` is an `int`. So arithmetic on high-bit bytes goes negative, and printing the result shows a decimal number, not a character:
 
 ```xmin
 char v = 224          # stores byte 0xE0, reads as -32 in arithmetic
@@ -184,16 +193,12 @@ if char(v - 5) == 219:       # true: char() truncates to byte 0xDB,
   print("byte match\n")      # which byte-wise-equals 219
 ```
 
-Rule of thumb: the byte-wise behavior applies **only to `==` and `!=`**;
-everything else sees a signed value.
+Rule of thumb: the byte-wise behavior applies **only to `==` and `!=`**; everything else sees a signed value.
 
 ### Numeric literal widths
 
-- Decimal literals that do not fit a signed 16-bit `int` (`32768` and up)
-  automatically become `long` constants.
-- Hex literals up to 16 bits (`0x0` through `0xffff`) are `int` bit patterns —
-  so addresses (`@ 0xFE00`) and masks keep `int` type; note `0x8000..0xffff`
-  read back as negative ints.
+- Decimal literals that do not fit a signed 16-bit `int` (`32768` and up) automatically become `long` constants.
+- Hex literals up to 16 bits (`0x0` through `0xffff`) are `int` bit patterns — so addresses (`@ 0xFE00`) and masks keep `int` type; note `0x8000..0xffff` read back as negative ints.
 - Hex literals wider than 16 bits (e.g. `0x12345678`) become `long` constants.
 
 ```xmin
@@ -204,8 +209,7 @@ long word = 0x12345678  # hex wider than 16 bits is long
 ```
 
 ## Casts
-Unlike original Min, Extended Min does not silently narrow values across types.
-Use an explicit cast when narrowing or widening intentionally.
+Unlike original Min, Extended Min does not silently narrow values across types. Use an explicit cast when narrowing or widening intentionally.
 
 Cast syntax is function-style:
 
@@ -223,8 +227,7 @@ long big = long(n)
 
 ## Constants
 
-Extended Min adds compile-time constants declared with `:=`.
-These are resolved during tokenization and do not exist as runtime variables.
+Extended Min adds compile-time constants declared with `:=`. These are resolved during tokenization and do not exist as runtime variables.
 
 Supported constant declaration types:
 
@@ -534,8 +537,7 @@ else:
 
 ## Functions
 
-Function definitions use `def`.
-Parameters are typed, and may optionally be by-reference with `&`.
+Function definitions use `def`. Parameters are typed, and may optionally be by-reference with `&`.
 
 Examples:
 
@@ -579,10 +581,7 @@ Behavior:
 - `int` values print in decimal
 - `long` values print in decimal
 
-Note that arithmetic always produces an `int` (or `long`) result, so
-`print(c)` prints a character while `print(c + 0)` or `print(c - 5)` prints a
-signed decimal number — see
-[chars in arithmetic](#char-values-assignment-and-reads).
+Note that arithmetic always produces an `int` (or `long`) result, so `print(c)` prints a character while `print(c + 0)` or `print(c - 5)` prints a signed decimal number — see [chars in arithmetic](#char-values-assignment-and-reads).
 
 ## External calls and imports
 

@@ -81,14 +81,16 @@ Expression result contract (global state):
 - `z_type`: element type (`char`, `int`, or `long`)
 - payload is contiguous and null-terminated for byte-oriented string usage
 
+`Factor` routes full-variable and indexed/sliced value reads through `fac_copyvalue`. The scalar path requires the full 16-bit element count to equal 1; a count such as 257 must use the bulk path even though its low byte is 1. Scalar reads copy exactly 1, 2, or 4 bytes for `char`, `int`, or `long` without byte-count scaling or a copy loop. Zero or multiple elements use `fac_copyarray`, which scales a temporary byte count while preserving `z_cnt` in elements.
+
+Both paths preserve the result type, append a zero terminator, and share the expression-memory end check in `fac_endfull`. The copy cursors reuse `facptr` (source) and `longptr` (destination); no additional zero-page storage is allocated. Payload bytes are read once in ascending order, including `@` views.
+
 ## Loader and Import Resolution
 `Loader` supports two modes:
 - `min <file>`: load named file via `LoadFileTo`
 - `min`: interpret text already in RAM at `0x8000`
 
-`LoadFileTo` uses `_FindFile` + bank-aware `OS_FlashA` to copy file bytes to `z_PtrD`.
-On successful load, it explicitly writes a trailing `\0` byte in RAM before returning.
-The loader now treats `source_top` (`0xd000`) as the exclusive source/token upper bound and aborts with `Out of RAM` if imported source would cross into the shared tokenizer/runtime area.
+`LoadFileTo` uses `_FindFile` + bank-aware `OS_FlashA` to copy file bytes to `z_PtrD`. On successful load, it explicitly writes a trailing `\0` byte in RAM before returning. The loader now treats `source_top` (`0xd000`) as the exclusive source/token upper bound and aborts with `Out of RAM` if imported source would cross into the shared tokenizer/runtime area.
 
 Import resolution:
 - Loader scans source text for `use "..."`, ignoring `#...` comment regions, and appends each file into source memory.
@@ -200,9 +202,11 @@ Explicit cast handling:
 - Mixed-width scalar expressions widen to `long` when either operand is `long`.
 
 Math helpers:
-- `int_mul`, `int_div`, `int_lsl`, `int_lsr`, `int_tostr`
+- `int_tostr`; int multiply and divide are inlined in `Term`, and int `<<` / `>>` are inlined in `Expr`
 - `PrintLongZC` for signed decimal `print(long)`
 - long helper group for add/sub/mul/div/neg/not/bitwise/shift/compare operations
+
+`LongAddStore`, `LongSubStore`, `LongAndStore`, `LongOrStore`, and `LongXorStore` load the RHS with `getL` and perform their arithmetic directly. Their former separate `Long*EC` arithmetic routines have been folded into these store helpers. These helpers, plus `LongMulStore` and `LongDivStore`, tail-jump to `StoreLongResult` to write the result, check space, and clear reference state. `LongMulStore` and `LongDivStore` contain the signed multiply and divide bodies directly, and `LongDivStore` also contains the divide-by-zero check. The unsigned remainder compare in the 32-pass divide loop is inlined and branches straight to its subtract or skip step. Single-instruction long negate and complement are written inline as `NEQ` / `NOQ`.
 
 Expression-stack invariants:
 - every expression leaves a normalized descriptor in (`z_sp`, `z_cnt`, `z_type`)
@@ -225,6 +229,7 @@ CPU Stack Conventions (Milestone 4):
 - **JPS/RTS interaction:**
   - Functions that pop values directly from the CPU stack (like `PopIntLhsHiLoToLongE`) must account for the return address being pushed by `JPS` before the function body executes.
   - Such functions must either: (1) save/restore the return address around their pops, or (2) be inlined rather than called via `JPS`.
+  - A tail-jumped handler returns through its caller's existing return address. It must not rely on an extra `JPS` frame when accessing arguments with `LDS` or results with `STS`. Tail-jump only after balancing any temporary saves.
 - **Expression storage:**
   - All expression results are stored on the expression stack (zero-page `z_sp` region), not the CPU stack.
   - The CPU stack is only used for temporary saves during complex expression evaluation (e.g., when evaluating `a + f(b)` where `a` must be saved while `f(b)` executes).
@@ -233,10 +238,13 @@ CPU Stack Conventions (Milestone 4):
 Dispatch:
 - `Statement` handles block-level keywords (`if`, `while`, `def`) and delegates other forms to `SimpleLine`.
 - `SimpleLine` handles assignments, `break`, function call, `return`, declarations, `call`, `print`, `serial`, `output`.
+- `Statement` tail-jumps to its selected handler. Long arithmetic store helpers likewise tail-jump to `StoreLongResult`, avoiding redundant CPU-stack frames.
+- `serial` and `output` are inlined in `SimpleLine` as `PrintStmt` with `z_serial` set. `CallStmt` sits between `lineerror` and `linecont`; it is entered with `JPA` and falls through to `linecont`. The int `<<` and `>>` bodies sit at their `Expr` call sites, cross-jump for negative counts (`intlslpos` / `intlsrpos`), and exit to `expr_reuse`. A routine whose last action is a call ends with `JPA` to that callee instead of `JPS` + `RTS`.
+- Inline a subroutine only when it has a single call site or its body is no larger than the `JPS`; with several call sites, inlining costs more bytes than it saves.
 
 Blocks:
 - `Block` creates scope by saving/restoring `z_nextvar` and stack pointers.
-- `FastBlock` is function-specific and skips extra save/restore because call frame already owns that responsibility.
+- The function-body block (formerly the `FastBlock` subroutine) is inlined in `FunctionCall` at `fun_whileex` (`fblockwhile` / `fblocksimple` / `fblockdone`). It skips extra save/restore because the call frame already owns that responsibility.
 - `if` and `while` truthiness now use width-aware scalar evaluation, so raw `long` conditions are valid.
 
 Halting flags (`z_halt` bits):
@@ -259,7 +267,7 @@ Call:
   - current scalar widths in bound locals are `char=1`, `int=2`, and `long=4`
   - uses dedicated parser cursors (`z_fun_argpc`, `z_fun_parpc`) to switch between caller-argument and callee-parameter streams
   - preserves those cursors on nested calls
-  - executes callee via `FastBlock`
+  - executes the callee body inline (`fblockwhile` / `fblocksimple`)
   - copies returned payload back to caller stack when `return` is used
 
 Lookup:
@@ -289,6 +297,10 @@ Assignment (`VarAssignment`):
 - indexed assignment with bounds checks
 - whole-value assignment with rhs-count bounds checks against variable capacity
 - optimized `+=` / `-=` for constant RHS token form (supports `char`, `int`, and `long` types)
+- single-element `=` assignments copy the typed payload directly after the existing capacity checks; indexed and whole-value assignments share this path
+- assignment keeps `z_cnt` in elements through bounds checking and converts it to a byte count only when entering the bulk-copy loop
+
+At `ass_copy`, the full 16-bit `z_cnt == 1` selects the scalar path. It writes exactly the declared type width from the expression stack to `assptr`, reusing `longptr` for the upper bytes of a `long`. `ass_bulk` scales `z_cnt` in place and uses the existing self-modifying `ass_src`/`ass_dst` byte-copy loop. Indexed assignment preserves the variable's element count; whole-value assignment updates it from the RHS count. Capacity checks apply to both copy paths.
 
 Reference and absolute-address interplay:
 - `&var` and `&var[...]` produce pointers and set reference metadata (`z_refset`, `z_refcnt`)
@@ -332,11 +344,13 @@ Notable diagnostics now include:
 - `serial(...)` behaves identically to `print(...)` but routes all output to the UART via `OUT`/`_SerialWait` instead of screen output.
 - `output(...)` behaves identically to `print(...)` but sends output to both the screen and the UART.
 - `call <const_addr>` requires a tokenized integer constant address, making external API calls explicit and low-overhead.
-- Hot loop routines (`SimpleLine`, `Block`, `FastBlock`, `WhileStmt`) are relocated near the end of the code, but are not page-aligned. This preserves interpreter code space at the cost of a few extra long branches in hot dispatch paths.
+- Hot loop routines (`SimpleLine`, `Block`, `WhileStmt`) are relocated near the end of the code, but are not page-aligned. This preserves interpreter code space at the cost of a few extra long branches in hot dispatch paths.
+- Hot cache loads, long-value cursors, spill helpers, and assignment counters use zero-page instruction forms for state already in `MIN_ZERO_PAGE`. This reduces instruction size and access overhead without enlarging the zero-page region.
+
+After layout changes, run the repo's `optimize-size` workflow separately for each target and validate both default and accelerator builds. On both machines, fast branches use the operand-fetch page: an opcode at `xxFF` targets the next page. Both assembler configs must set `match_on_argument_bytcode: true` on `address_lsb`. Track the complete interpreter footprint, including state and tables, within `MIN_INTERPRETER`; `g_stop` alone marks only the start of global state, while `newitems` marks the end of that region's emitted data.
 
 ## Min Language EBNF Description
-The following EBNF is a useful baseline reference for Min syntax.
-This section reflects the currently implemented constants syntax.
+The following EBNF is a useful baseline reference for Min syntax. This section reflects the currently implemented constants syntax.
 
 ```text
 ---------------------------------------------------------------------------------------

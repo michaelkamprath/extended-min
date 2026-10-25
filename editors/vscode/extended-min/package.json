@@ -1,0 +1,42 @@
+{
+  "name": "extended-min",
+  "displayName": "Extended Min",
+  "description": "Syntax highlighting, comment toggling, indentation, and folding for Extended Min (*.xmin) on the Minimal 64x4.",
+  "version": "0.1.0",
+  "publisher": "michaelkamprath",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/michaelkamprath/extended-min"
+  },
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "xmin",
+        "aliases": ["Extended Min", "xmin"],
+        "extensions": [".xmin"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "xmin",
+        "scopeName": "source.xmin",
+        "path": "./syntaxes/xmin.tmLanguage.json"
+      }
+    ],
+    "configurationDefaults": {
+      "[xmin]": {
+        "editor.insertSpaces": true,
+        "editor.tabSize": 2,
+        "editor.detectIndentation": false
+      }
+    }
+  }
+}

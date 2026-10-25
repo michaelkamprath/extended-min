@@ -1,0 +1,114 @@
+# Scalar copy regressions: widths, indexed reads/writes, counts, and page crossing.
+int passed = 0
+int failed = 0
+char results[12] = 0
+
+def check(int n, int ok):
+  results[n - 1] = char(ok)
+  if ok:
+    passed += 1
+  else:
+    failed += 1
+
+def echochar(char x):
+  return x
+
+def echoint(int x):
+  return x
+
+def echolong(long x):
+  return x
+
+def setlong(long &x):
+  x = 0x12345678
+
+# Full scalar reads and whole assignments, including signed values.
+char c = -32
+char ccopy = 0
+ccopy = c
+check(1, (ccopy == 224) and (int(ccopy) == -32) and (len(ccopy) == 1))
+
+int w = -12345
+int wcopy = 0
+wcopy = w
+check(2, (wcopy == -12345) and (len(wcopy) == 1))
+
+long q = 0x12345678
+long qcopy = 0
+qcopy = q
+check(3, (qcopy == 0x12345678) and (len(qcopy) == 1))
+
+# Indexed assignments must preserve neighboring elements and the stored count.
+char chars = 17, 34, 51
+chars[1] = c
+check(4, (chars[0] == 17) and (chars[1] == 224) and (chars[2] == 51) and (len(chars) == 3))
+
+int words = 1111, 2222, 3333
+words[1] = w
+check(5, (words[0] == 1111) and (words[1] == -12345) and (words[2] == 3333) and (len(words) == 3))
+
+long quads = long(111111), long(222222), long(333333)
+quads[1] = q
+check(6, (quads[0] == 111111) and (quads[1] == q) and (quads[2] == 333333) and (len(quads) == 3))
+
+# One-element slices retain their declared width and concatenate correctly.
+char joined = chars[1|2] _ "Z"
+int wslice = words[1|2]
+long qslice = quads[1|2]
+check(7, (len(joined) == 2) and (joined[0] == 224) and (joined[1] == 90) and (wslice == w) and (qslice == q))
+
+# Empty values must use the zero-length path; a later scalar assignment sets cnt=1.
+char emptybuf[4] = ""
+char dest[4] = "AB"
+dest = emptybuf
+int wasempty = len(dest) == 0
+dest = c
+check(8, wasempty and (len(dest) == 1) and (sizeof(dest) == 4) and (dest == 224))
+
+# Multi-element copies still scale counts by width, including indexed assignment.
+int wd[4] = 10, 20, 30, 40
+long qd[4] = long(10), long(20), long(30), long(40)
+wd[1] = words[0|2]
+qd[1] = quads[0|2]
+check(9, (wd[0] == 10) and (wd[1] == 1111) and (wd[2] == w) and (wd[3] == 40) and (qd[0] == 10) and (qd[1] == 111111) and (qd[2] == q) and (qd[3] == 40))
+
+# A count whose low byte is 1 must not be mistaken for a scalar.
+char big[257]
+char bigcopy[257]
+big[0] = 65
+big[256] = 90
+bigcopy = big
+check(10, (len(bigcopy) == 257) and (bigcopy[0] == 65) and (bigcopy[256] == 90))
+
+# Function arguments, returns, and reference writes use the same copy paths.
+qcopy = 0
+setlong(qcopy)
+check(11, (echochar(c) == 224) and (echoint(w) == w) and (echolong(q) == q) and (qcopy == q))
+
+# Put a four-byte @ view across a page boundary inside owned storage.
+char arena[520]
+int edge = 256 - (&arena and 255)
+arena[edge - 2] = 85
+arena[edge + 3] = 102
+long cross @ (&arena + edge - 1)
+cross = q
+long crosscopy = cross
+check(12, (crosscopy == q) and (arena[edge - 2] == 85) and (arena[edge - 1] == 0x78) and (arena[edge] == 0x56) and (arena[edge + 1] == 0x34) and (arena[edge + 2] == 0x12) and (arena[edge + 3] == 102))
+
+print("PASS ")
+int i = 0
+while i < 12:
+  if results[i]:
+    print(i + 1); print(" ")
+  i += 1
+print("\nFAIL ")
+i = 0
+while i < 12:
+  if results[i] == 0:
+    print(i + 1); print(" ")
+  i += 1
+print("\nm3scalar PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

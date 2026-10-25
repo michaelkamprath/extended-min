@@ -1,0 +1,517 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Extended Min",
+  "scopeName": "source.xmin",
+  "fileTypes": [
+    "xmin"
+  ],
+  "comment": "Generated to match editors/sublime-text/ExtendedMin/ExtendedMin.sublime-syntax. Keywords mirror the interpreter tokenizer keyword table; scope names follow the Python grammar.",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#use-import"
+    },
+    {
+      "include": "#def"
+    },
+    {
+      "include": "#block-statements"
+    },
+    {
+      "include": "#const-decl"
+    },
+    {
+      "include": "#declaration"
+    },
+    {
+      "include": "#initializer-separator"
+    },
+    {
+      "include": "#expressions"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "match": "(#).*$",
+      "name": "comment.line.number-sign.xmin",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.comment.xmin"
+        }
+      }
+    },
+    "use-import": {
+      "match": "^\\s*(use)\\b",
+      "captures": {
+        "1": {
+          "name": "keyword.control.import.xmin"
+        }
+      }
+    },
+    "def": {
+      "begin": "\\b(def)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.declaration.function.xmin"
+        },
+        "2": {
+          "name": "entity.name.function.xmin"
+        },
+        "3": {
+          "name": "punctuation.section.parameters.begin.xmin"
+        }
+      },
+      "end": "(\\))(?:\\s*(:))?",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.section.parameters.end.xmin"
+        },
+        "2": {
+          "name": "punctuation.section.function.begin.xmin"
+        }
+      },
+      "contentName": "meta.function.parameters.xmin",
+      "patterns": [
+        {
+          "match": "\\b(?:char|int|long)\\b",
+          "name": "support.type.xmin"
+        },
+        {
+          "match": "&",
+          "name": "storage.modifier.reference.xmin"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.parameters.xmin"
+        },
+        {
+          "match": "[A-Za-z_][A-Za-z0-9_]*",
+          "name": "variable.parameter.xmin"
+        },
+        {
+          "include": "#comments"
+        }
+      ]
+    },
+    "block-statements": {
+      "patterns": [
+        {
+          "begin": "\\b(if)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.conditional.if.xmin"
+            }
+          },
+          "end": "(:)(?!=)|(?=#)|$",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.section.block.conditional.xmin"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#expressions"
+            }
+          ]
+        },
+        {
+          "begin": "\\b(elif)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.conditional.elseif.xmin"
+            }
+          },
+          "end": "(:)(?!=)|(?=#)|$",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.section.block.conditional.xmin"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#expressions"
+            }
+          ]
+        },
+        {
+          "match": "\\b(else)\\b(?:\\s*(:))?",
+          "captures": {
+            "1": {
+              "name": "keyword.control.conditional.else.xmin"
+            },
+            "2": {
+              "name": "punctuation.section.block.conditional.xmin"
+            }
+          }
+        },
+        {
+          "begin": "\\b(while)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.loop.while.xmin"
+            }
+          },
+          "end": "(:)(?!=)|(?=#)|$",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.section.block.loop.xmin"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#expressions"
+            }
+          ]
+        }
+      ]
+    },
+    "const-decl": {
+      "match": "\\b((?:char|int|long))\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(:=)",
+      "captures": {
+        "1": {
+          "name": "storage.type.xmin"
+        },
+        "2": {
+          "name": "variable.other.constant.xmin"
+        },
+        "3": {
+          "name": "keyword.operator.assignment.constant.xmin"
+        }
+      }
+    },
+    "declaration": {
+      "match": "\\b((?:char|int|long))\\s+([A-Za-z_][A-Za-z0-9_]*)\\b(?!\\s*\\()",
+      "captures": {
+        "1": {
+          "name": "storage.type.xmin"
+        },
+        "2": {
+          "name": "variable.other.declaration.xmin"
+        }
+      }
+    },
+    "initializer-separator": {
+      "match": ",",
+      "name": "punctuation.separator.sequence.xmin"
+    },
+    "expressions": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#blob"
+        },
+        {
+          "include": "#numbers"
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#calls"
+        },
+        {
+          "include": "#types"
+        },
+        {
+          "include": "#groups"
+        },
+        {
+          "include": "#item-access"
+        },
+        {
+          "include": "#operators"
+        },
+        {
+          "match": ";",
+          "name": "punctuation.terminator.statement.xmin"
+        },
+        {
+          "match": "[A-Za-z_][A-Za-z0-9_]*",
+          "name": "variable.other.xmin"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\bbreak\\b",
+          "name": "keyword.control.flow.break.xmin"
+        },
+        {
+          "match": "\\breturn\\b",
+          "name": "keyword.control.flow.return.xmin"
+        },
+        {
+          "match": "\\bcall\\b",
+          "name": "keyword.control.flow.call.xmin"
+        },
+        {
+          "match": "\\b(?:not|and|or|xor)\\b",
+          "name": "keyword.operator.logical.xmin"
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "begin": "\\b((?:char|int|long))\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "support.type.xmin"
+            },
+            "2": {
+              "name": "punctuation.section.arguments.begin.xmin"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.arguments.end.xmin"
+            }
+          },
+          "contentName": "meta.function-call.arguments.xmin",
+          "patterns": [
+            {
+              "match": ",",
+              "name": "punctuation.separator.arguments.xmin"
+            },
+            {
+              "include": "#expressions"
+            }
+          ]
+        },
+        {
+          "begin": "\\b((?:print|serial|output|append|pop|empty|len|sizeof))\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "support.function.builtin.xmin"
+            },
+            "2": {
+              "name": "punctuation.section.arguments.begin.xmin"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.arguments.end.xmin"
+            }
+          },
+          "contentName": "meta.function-call.arguments.xmin",
+          "patterns": [
+            {
+              "match": ",",
+              "name": "punctuation.separator.arguments.xmin"
+            },
+            {
+              "include": "#expressions"
+            }
+          ]
+        },
+        {
+          "begin": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "variable.function.xmin"
+            },
+            "2": {
+              "name": "punctuation.section.arguments.begin.xmin"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.arguments.end.xmin"
+            }
+          },
+          "contentName": "meta.function-call.arguments.xmin",
+          "patterns": [
+            {
+              "match": ",",
+              "name": "punctuation.separator.arguments.xmin"
+            },
+            {
+              "include": "#expressions"
+            }
+          ]
+        }
+      ]
+    },
+    "types": {
+      "match": "\\b(?:char|int|long)\\b",
+      "name": "storage.type.xmin"
+    },
+    "groups": {
+      "begin": "\\(",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.group.begin.xmin"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.group.end.xmin"
+        }
+      },
+      "name": "meta.group.xmin",
+      "patterns": [
+        {
+          "include": "#expressions"
+        }
+      ]
+    },
+    "item-access": {
+      "begin": "\\[",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.brackets.begin.xmin"
+        }
+      },
+      "end": "\\]",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.brackets.end.xmin"
+        }
+      },
+      "name": "meta.item-access.xmin",
+      "patterns": [
+        {
+          "match": "\\|",
+          "name": "punctuation.separator.slice.xmin"
+        },
+        {
+          "include": "#expressions"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "\\b(0[xX])[0-9A-Fa-f]+\\b",
+          "name": "constant.numeric.integer.hexadecimal.xmin",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.numeric.base.xmin"
+            }
+          }
+        },
+        {
+          "match": "\\b[0-9]+\\b",
+          "name": "constant.numeric.integer.decimal.xmin"
+        }
+      ]
+    },
+    "strings": {
+      "begin": "\"",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.xmin"
+        }
+      },
+      "end": "(\")|$",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.string.end.xmin"
+        }
+      },
+      "name": "string.quoted.double.xmin",
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.xmin"
+        }
+      ]
+    },
+    "blob": {
+      "begin": "(\\$)(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.string.xmin"
+        },
+        "2": {
+          "name": "punctuation.section.blob.begin.xmin"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.blob.end.xmin"
+        }
+      },
+      "name": "meta.blob.xmin",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "match": "\\b(0[xX])[0-9A-Fa-f]{1,2}\\b",
+          "name": "constant.numeric.integer.hexadecimal.xmin",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.numeric.base.xmin"
+            }
+          }
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.blob.xmin"
+        },
+        {
+          "match": "\\S",
+          "name": "invalid.illegal.blob-value.xmin"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": ":=",
+          "name": "keyword.operator.assignment.constant.xmin"
+        },
+        {
+          "match": "\\+=|-=",
+          "name": "keyword.operator.assignment.augmented.xmin"
+        },
+        {
+          "match": "<<|>>",
+          "name": "keyword.operator.bitwise.xmin"
+        },
+        {
+          "match": "==|!=|<=|>=|<|>",
+          "name": "keyword.operator.comparison.xmin"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.xmin"
+        },
+        {
+          "match": "[-+*/]",
+          "name": "keyword.operator.arithmetic.xmin"
+        },
+        {
+          "match": "\\b_\\b",
+          "name": "keyword.operator.concatenation.xmin"
+        },
+        {
+          "match": "@",
+          "name": "keyword.operator.address.xmin"
+        },
+        {
+          "match": "&",
+          "name": "keyword.operator.reference.xmin"
+        },
+        {
+          "match": ":",
+          "name": "punctuation.section.block.xmin"
+        }
+      ]
+    }
+  }
+}

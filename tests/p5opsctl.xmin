@@ -107,7 +107,7 @@ else:
 
 int loopsum = 0
 while n >= 1:
-  loopsum += n
+  loopsum = loopsum + int(n)
   n = n - 1
 # Test 12: long `while` condition and loop-carried arithmetic.
 if loopsum == 6:
@@ -137,7 +137,7 @@ else:
 def countdown(int n2):
   int sum = 0
   while n2 > 1:
-    sum += n2
+    sum = sum + n2
     n2 = n2 - 1
   return sum
 

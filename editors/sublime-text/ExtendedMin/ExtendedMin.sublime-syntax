@@ -1,0 +1,288 @@
+%YAML 1.2
+---
+# Sublime Text syntax definition for Extended Min (*.xmin).
+#
+# Keywords mirror the interpreter's tokenizer keyword table. Scope names follow
+# Sublime's Python syntax wherever Extended Min has an equivalent construct, so
+# Python-oriented color schemes apply. Every kind of punctuation has its own
+# scope so it can be colored independently.
+name: Extended Min
+scope: source.xmin
+version: 2
+file_extensions:
+  - xmin
+
+variables:
+  ident: '[A-Za-z_][A-Za-z0-9_]*'
+  type: '(?:char|int|long)'
+  builtin: '(?:print|serial|output|append|pop|empty|len|sizeof)'
+
+contexts:
+  main:
+    - include: comments
+    - include: use-import
+    - include: def
+    - include: block-statements
+    - include: const-decl
+    - include: declaration
+    - include: initializer-separator
+    - include: expressions
+
+  ###[ COMMENTS ]################################################################
+
+  comments:
+    - match: '#'
+      scope: punctuation.definition.comment.xmin
+      push: comment-body
+
+  comment-body:
+    - meta_scope: comment.line.number-sign.xmin
+    - match: $\n?
+      pop: true
+
+  ###[ STATEMENTS ]##############################################################
+
+  use-import:
+    - match: '^\s*(use)\b'
+      captures:
+        1: keyword.control.import.xmin
+
+  # def name(type [&]param, ...):
+  def:
+    - match: '\b(def)\s+({{ident}})\s*(\()'
+      captures:
+        1: keyword.declaration.function.xmin
+        2: entity.name.function.xmin
+        3: punctuation.section.parameters.begin.xmin
+      push: [def-after-params, def-params]
+
+  def-params:
+    - meta_scope: meta.function.parameters.xmin
+    - match: '\)'
+      scope: punctuation.section.parameters.end.xmin
+      pop: true
+    - match: '\b{{type}}\b'
+      scope: support.type.xmin
+    - match: '&'
+      scope: storage.modifier.reference.xmin
+    - match: ','
+      scope: punctuation.separator.parameters.xmin
+    - match: '{{ident}}'
+      scope: variable.parameter.xmin
+    - include: comments
+
+  def-after-params:
+    - match: ':'
+      scope: punctuation.section.function.begin.xmin
+      pop: true
+    - include: line-end-pop
+
+  # if / elif / while headers end at an optional ':' or at the end of the line
+  block-statements:
+    - match: '\b(if)\b'
+      scope: keyword.control.conditional.if.xmin
+      push: conditional-header
+    - match: '\b(elif)\b'
+      scope: keyword.control.conditional.elseif.xmin
+      push: conditional-header
+    - match: '\b(else)\b(?:\s*(:))?'
+      captures:
+        1: keyword.control.conditional.else.xmin
+        2: punctuation.section.block.conditional.xmin
+    - match: '\b(while)\b'
+      scope: keyword.control.loop.while.xmin
+      push: loop-header
+
+  conditional-header:
+    - match: ':(?!=)'
+      scope: punctuation.section.block.conditional.xmin
+      pop: true
+    - include: line-end-pop
+    - include: expressions
+
+  loop-header:
+    - match: ':(?!=)'
+      scope: punctuation.section.block.loop.xmin
+      pop: true
+    - include: line-end-pop
+    - include: expressions
+
+  line-end-pop:
+    - match: '(?=#|$)'
+      pop: true
+
+  # compile-time constant: int Name := ...
+  const-decl:
+    - match: '\b({{type}})\s+({{ident}})\s*(:=)'
+      captures:
+        1: storage.type.xmin
+        2: variable.other.constant.xmin
+        3: keyword.operator.assignment.constant.xmin
+
+  # variable declaration: type name, type name[N], type name @ addr
+  declaration:
+    - match: '\b({{type}})\s+({{ident}})\b(?!\s*\()'
+      captures:
+        1: storage.type.xmin
+        2: variable.other.declaration.xmin
+
+  # top-level commas separate initializer elements: int v = 1, 2, 3
+  initializer-separator:
+    - match: ','
+      scope: punctuation.separator.sequence.xmin
+
+  ###[ EXPRESSIONS ]#############################################################
+
+  expressions:
+    - include: comments
+    - include: strings
+    - include: blob
+    - include: numbers
+    - include: keywords
+    - include: calls
+    - include: types
+    - include: groups
+    - include: item-access
+    - include: operators
+    - match: ';'
+      scope: punctuation.terminator.statement.xmin
+    - match: '{{ident}}'
+      scope: variable.other.xmin
+
+  keywords:
+    - match: '\bbreak\b'
+      scope: keyword.control.flow.break.xmin
+    - match: '\breturn\b'
+      scope: keyword.control.flow.return.xmin
+    - match: '\bcall\b'
+      scope: keyword.control.flow.call.xmin
+    - match: '\b(?:not|and|or|xor)\b'
+      scope: keyword.operator.logical.xmin
+
+  # name(...), print(...), long(...): call arguments
+  calls:
+    - match: '\b({{type}})\s*(\()'
+      captures:
+        1: support.type.xmin
+        2: punctuation.section.arguments.begin.xmin
+      push: call-arguments
+    - match: '\b({{builtin}})\s*(\()'
+      captures:
+        1: support.function.builtin.xmin
+        2: punctuation.section.arguments.begin.xmin
+      push: call-arguments
+    - match: '\b({{ident}})\s*(\()'
+      captures:
+        1: variable.function.xmin
+        2: punctuation.section.arguments.begin.xmin
+      push: call-arguments
+
+  call-arguments:
+    - meta_scope: meta.function-call.arguments.xmin
+    - match: '\)'
+      scope: punctuation.section.arguments.end.xmin
+      pop: true
+    - match: ','
+      scope: punctuation.separator.arguments.xmin
+    - include: expressions
+
+  types:
+    - match: '\b{{type}}\b'
+      scope: storage.type.xmin
+
+  groups:
+    - match: '\('
+      scope: punctuation.section.group.begin.xmin
+      push: group-body
+
+  group-body:
+    - meta_scope: meta.group.xmin
+    - match: '\)'
+      scope: punctuation.section.group.end.xmin
+      pop: true
+    - include: expressions
+
+  # var[i], var[a|b], legacy var[|n], sized declarations name[N]
+  item-access:
+    - match: '\['
+      scope: punctuation.section.brackets.begin.xmin
+      push: item-access-body
+
+  item-access-body:
+    - meta_scope: meta.item-access.xmin
+    - match: '\]'
+      scope: punctuation.section.brackets.end.xmin
+      pop: true
+    - match: '\|'
+      scope: punctuation.separator.slice.xmin
+    - include: expressions
+
+  numbers:
+    - match: '\b(0[xX])[0-9A-Fa-f]+\b'
+      scope: constant.numeric.integer.hexadecimal.xmin
+      captures:
+        1: punctuation.definition.numeric.base.xmin
+    - match: '\b[0-9]+\b'
+      scope: constant.numeric.integer.decimal.xmin
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.xmin
+      push: string-body
+
+  string-body:
+    - meta_scope: string.quoted.double.xmin
+    - match: '"'
+      scope: punctuation.definition.string.end.xmin
+      pop: true
+    - match: '\\.'
+      scope: constant.character.escape.xmin
+    - match: '$\n?'
+      scope: invalid.illegal.unclosed-string.xmin
+      pop: true
+
+  # compact hex byte blob: $( 0x01, 0x02, ... ) -- may span lines.
+  # '$' is scoped like Python's b"" prefix.
+  blob:
+    - match: '(\$)(\()'
+      captures:
+        1: storage.type.string.xmin
+        2: punctuation.section.blob.begin.xmin
+      push: blob-body
+
+  blob-body:
+    - meta_scope: meta.blob.xmin
+    - match: '\)'
+      scope: punctuation.section.blob.end.xmin
+      pop: true
+    - include: comments
+    - match: '\b(0[xX])[0-9A-Fa-f]{1,2}\b'
+      scope: constant.numeric.integer.hexadecimal.xmin
+      captures:
+        1: punctuation.definition.numeric.base.xmin
+    - match: ','
+      scope: punctuation.separator.blob.xmin
+    - match: '\S'
+      scope: invalid.illegal.blob-value.xmin
+
+  operators:
+    - match: ':='
+      scope: keyword.operator.assignment.constant.xmin
+    - match: '\+=|-='
+      scope: keyword.operator.assignment.augmented.xmin
+    - match: '==|!=|<=|>=|<(?!<)|>(?!>)'
+      scope: keyword.operator.comparison.xmin
+    - match: '<<|>>'
+      scope: keyword.operator.bitwise.xmin
+    - match: '='
+      scope: keyword.operator.assignment.xmin
+    - match: '[-+*/]'
+      scope: keyword.operator.arithmetic.xmin
+    - match: '\b_\b'
+      scope: keyword.operator.concatenation.xmin
+    - match: '@'
+      scope: keyword.operator.address.xmin
+    - match: '&'
+      scope: keyword.operator.reference.xmin
+    - match: ':'
+      scope: punctuation.section.block.xmin

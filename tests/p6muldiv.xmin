@@ -1,7 +1,7 @@
 int passed = 0
 int failed = 0
 int t1 = 0; int t2 = 0; int t3 = 0; int t4 = 0; int t5 = 0; int t6 = 0
-int t7 = 0; int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0
+int t7 = 0; int t8 = 0; int t9 = 0; int t10 = 0; int t11 = 0; int t12 = 0
 
 def showpass(int n, int s):
   if s == 1:
@@ -103,12 +103,32 @@ else:
   print("FAIL 11 neg both div\n")
   failed += 1; t11 = -1
 
+long big = 2000000000
+long dv = 300000
+long u1 = big / dv
+big = 2147483647; dv = 65536
+long u2 = big / dv
+big = 123456789; dv = 123456789
+long u3 = big / dv
+big = 1073741824; dv = 1073741823
+long u4 = big / dv
+big = 1000000; dv = 1000001
+long u5 = big / dv
+big = 305419896; dv = 4660
+long u6 = big / dv
+# Test 12: long divide by multi-byte divisors (remainder compare decided in upper bytes, and on equality).
+if (u1 == 6666) and (u2 == 32767) and (u3 == 1) and (u4 == 1) and (u5 == 0) and (u6 == 65540):
+  passed += 1; t12 = 1
+else:
+  print("FAIL 12 wide div\n")
+  failed += 1; t12 = -1
+
 print("PASS ")
 showpass(1, t1); showpass(2, t2); showpass(3, t3); showpass(4, t4); showpass(5, t5); showpass(6, t6)
-showpass(7, t7); showpass(8, t8); showpass(9, t9); showpass(10, t10); showpass(11, t11)
+showpass(7, t7); showpass(8, t8); showpass(9, t9); showpass(10, t10); showpass(11, t11); showpass(12, t12)
 print("\nFAIL ")
 showfail(1, t1); showfail(2, t2); showfail(3, t3); showfail(4, t4); showfail(5, t5); showfail(6, t6)
-showfail(7, t7); showfail(8, t8); showfail(9, t9); showfail(10, t10); showfail(11, t11)
+showfail(7, t7); showfail(8, t8); showfail(9, t9); showfail(10, t10); showfail(11, t11); showfail(12, t12)
 print("\np6muldiv PASS=")
 print(passed)
 print(" FAIL=")

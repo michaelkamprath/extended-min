@@ -5,14 +5,14 @@ description: Compile Extended Min Minimal 64x4 (and 64x4 Redux) assembly with Be
 
 # Compile Minimal 64x4
 
-Use this skill when you need to compile `*.min64x4` (Minimal 64x4) or
-`*.min64x4r` (Minimal 64x4 Redux) sources in this repository. The compile
-helper picks the instruction-set config by source extension.
+Use this skill when you need to compile `*.min64x4` (Minimal 64x4) or `*.min64x4r` (Minimal 64x4 Redux) sources in this repository. The compile helper picks the instruction-set config by source extension.
 
 ## Requirements
 
-- `bespokeasm` must be installed and available on `PATH`
+- the globally installed `bespokeasm` must be available on `PATH`
 - either `curl` or `wget` must be available so the helper can fetch the Minimal 64x4 BespokeASM config
+
+If the global assembler is missing or broken, ask the user to repair it. Do not search for or substitute a local development installation. The helper supports the macOS Bash 3.2 shell, including builds with no extra assembler arguments.
 
 The helper fetches the configs from:
 
@@ -48,8 +48,7 @@ skills/compile-min-64x4/scripts/compile_min64x4.sh \
 
 The helper:
 
-- uses `fetch_min64x4_config.sh` to fetch the matching BespokeASM config into
-  `/tmp/slu4-minimal-64x4.yaml` (original) or `/tmp/slu4-minimal-64x4-redux.yaml` (Redux)
+- uses `fetch_min64x4_config.sh` to fetch the matching BespokeASM config into `/tmp/slu4-minimal-64x4.yaml` (original) or `/tmp/slu4-minimal-64x4-redux.yaml` (Redux)
 - runs `bespokeasm compile -c <cfg> -n -p`
 - prints the pretty listing to stdout
 
@@ -87,11 +86,9 @@ bespokeasm compile -c "$cfg" -n -p -t intel_hex extended-min.min64x4r
 
 ## Validation Expectation
 
-For meaningful interpreter changes, compile both build variants of every
-affected target machine:
+For meaningful interpreter changes, compile both build variants of every affected target machine:
 
 - default build
 - `USE_ACCELERATOR` build
 
-If a change touches shared interpreter logic, compile both
-`extended-min.min64x4` and `extended-min.min64x4r`.
+If a change touches shared interpreter logic, compile both `extended-min.min64x4` and `extended-min.min64x4r`.

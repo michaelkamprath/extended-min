@@ -63,7 +63,7 @@ else
 fi
 
 if [[ ! -s "$cfg" ]]; then
-  "$fetch_script" "${fetch_args[@]}" "$cfg" >/dev/null
+  "$fetch_script" ${fetch_args[@]+"${fetch_args[@]}"} "$cfg" >/dev/null
 fi
 
 if [[ ! -s "$cfg" ]]; then
@@ -71,4 +71,5 @@ if [[ ! -s "$cfg" ]]; then
   exit 1
 fi
 
-bespokeasm compile -c "$cfg" -n -p "$src" "${extra_args[@]}"
+# Bash 3.2 treats an empty array as unset under nounset (the macOS default).
+bespokeasm compile -c "$cfg" -n -p "$src" ${extra_args[@]+"${extra_args[@]}"}
