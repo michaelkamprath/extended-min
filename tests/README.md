@@ -23,6 +23,7 @@ Current suites:
 - `p6muldiv.xmin`: int/long multiply and divide behavior
 - `arrslice.xmin`: array and slice behavior
 - `usecmt01.xmin`: loader ignores commented `use "..."` text
+- `asmblock.xmin` (original Minimal 64x4) / `asmblkrx.xmin` (Redux): `asm` blocks in both user areas, a routine straddling a page edge, internal jumps and calls, lowercase hex, trailing comments, and a column-0 identifier starting with `asm`. Machine code differs per target, so run the file that matches the machine. Sources are in `asm/`; `bespokeasm compile -c <config> -n -p -t xmin asm/asmblock.min64x4` (BespokeASM 0.9.0 or later) writes the records and declarations the test uses, which it splits into two blocks. Expected summary: `PASS=8 FAIL=0`. Expected-error fixtures for `asm` blocks are in `asmerr/`.
 
 For changes to variable reads or assignments, run `m3scalar.xmin` and `arrslice.xmin` on hardware. `m3scalar.xmin` covers all three scalar widths, one-element slices, indexed and whole-value assignments, empty values, a 257-element bulk copy, function arguments/returns, reference writes, and an absolute view crossing a page boundary. Its expected summary is `m3scalar PASS=12 FAIL=0`.
 

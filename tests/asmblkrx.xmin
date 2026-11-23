@@ -1,0 +1,105 @@
+# asm blocks: Intel HEX machine code loaded at tokenize time (Minimal 64x4 Redux opcodes).
+# The records and declarations come from `-t xmin` on tests/asm/asmblock.min64x4r, split
+# into two blocks here, with block 2 written in lowercase with a trailing comment.
+# Original machines run asmblock.xmin instead.
+int passed = 0
+int failed = 0
+char results[8] = 0
+
+def check(int n, int ok):
+  results[n - 1] = char(ok)
+  if ok:
+    passed += 1
+  else:
+    failed += 1
+
+# Block 1: code in the low user area. sumto straddles the 0x01ff/0x0200 page edge, and the
+# last record zero-fills the parameter block at 0x0f00.
+asm
+:1001000078000F80040F78010F80050F78020FBA76
+:09011000040F78030FB6050F6B14
+:1001F0009E040F9E050F78000F801402781402E809
+:1002000000560C690D02AC140266FC016B781402F6
+:05021000BA040F6B00B1
+:060F0000000000000000EB
+:00000001FF
+
+# Block 2: code and a table in the high user area; lowercase hex and a trailing comment.
+asm
+:03ed8000765a6b55    # retk
+:10EFE0000102030405060708090A0B0C0D0E0F1099
+:10EFF0001112131415161718191A1B1C1D1E1F2089
+:00000001FF
+
+int AddW := 0x0100
+int SumTo := 0x01f0
+int pa @ 0x0f00
+int pb @ 0x0f02
+int pr @ 0x0f04
+int RetK := 0xed80
+char table[32] @ 0xefe0
+# A after a call; not part of the assembly, so not in the generated declarations
+char sysreg @ 0x00ff
+
+# 1: 16-bit add with a carry out of the low byte
+pa = 0x00ff
+pb = 0x0001
+call AddW
+check(1, pr == 0x0100)
+
+# 2: signed operands
+pa = 1234
+pb = -5000
+call AddW
+check(2, pr == -3766)
+
+# 3: loop with internal JPS/JPA and a fast branch, at its assembled address
+pa = 100
+call SumTo
+check(3, pr == 5050)
+
+# 4: zero iterations
+pa = 0
+pr = 77
+call SumTo
+check(4, pr == 0)
+
+# 5: code in the high area; A comes back through 0x00ff
+sysreg = 0
+call RetK
+check(5, sysreg == 0x5a)
+
+# 6: data records at the top of the high area
+int sum = 0
+int i = 0
+while i < 32:
+  sum += table[i]
+  i += 1
+check(6, (sum == 528) and (table[0] == 1) and (table[31] == 32))
+
+# 7: a column-0 line starting with "asm" that is not an asm block
+int asmv = 0
+asmv = 7
+check(7, asmv == 7)
+
+# 8: asm blocks emit no tokens, so code after them runs normally
+int after = 3
+check(8, after * 2 == 6)
+
+print("PASS ")
+i = 0
+while i < 8:
+  if results[i]:
+    print(i + 1); print(" ")
+  i += 1
+print("\nFAIL ")
+i = 0
+while i < 8:
+  if results[i] == 0:
+    print(i + 1); print(" ")
+  i += 1
+print("\nasmblkrx PASS=")
+print(passed)
+print(" FAIL=")
+print(failed)
+print("\n")

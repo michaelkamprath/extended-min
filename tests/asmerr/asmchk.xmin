@@ -1,0 +1,4 @@
+# Expect: Invalid asm in line 3 (bad checksum)
+asm
+:03ED80000102038B
+:00000001FF

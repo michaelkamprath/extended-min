@@ -1,0 +1,6 @@
+# Expect: Invalid ID in line 6 (runtime error after an asm block maps to the right line)
+asm
+:03ED80000102038A
+:00000001FF
+print("before\n")
+print(nope)

@@ -1,0 +1,4 @@
+# Expect: Invalid asm in line 4 (block not closed by an EOF record)
+asm
+:03ED80000102038A
+print("not hex")

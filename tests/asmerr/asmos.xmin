@@ -1,0 +1,4 @@
+# Expect: Invalid asm in line 3 (0xf000 is MinOS)
+asm
+:03EFFE0000000010
+:00000001FF

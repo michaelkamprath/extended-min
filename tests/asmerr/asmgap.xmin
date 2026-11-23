@@ -1,0 +1,4 @@
+# Expect: Invalid asm in line 3 (0x1000 is interpreter code)
+asm
+:030FFE00000000F0
+:00000001FF

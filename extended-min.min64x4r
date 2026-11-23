@@ -35,7 +35,7 @@
 ; with this program. If not, see https://www.gnu.org/licenses/.
 
 ; MIN's MEMORY LAYOUT:
-; 0x0100 - 0x0fff   4KB text editor
+; 0x0100 - 0x0fff   user code area for 'asm' blocks (text editor RAM, unused by MIN)
 ; ---------------
 ; 0x1000 - 0x3fff   MIN interpreter incl. MIN global state (12 KB)
 ; ---------------
@@ -45,6 +45,7 @@
 ; 0xe300 - 0xebff   var dict (256 x 9 bytes)
 ; 0xec00 - 0xecf1   use dict (11 x 22 bytes)
 ; 0xed00 - 0xed7f   long-lhs spill stack (128 bytes)
+; 0xed80 - 0xefff   user code area for 'asm' blocks (640 bytes)
 ; ---------------
 ; 0xf000 - 0xfdff   4KB OS kernel
 ; 0xfe00 - 0xfe7f   OS save space
@@ -288,8 +289,9 @@ t_srcok:
 t_while:
     JPS Look CPI 0 FEQ t_srcwhile                                 ; get next char (ignoring #...)
 
-    CIT 'u',z_pc BNE t_measure                                    ; overlook 'use ...' commands
     LDZ z_pc+0 PHS LDZ z_pc+1 PHS                                 ; push current PC
+    CIT 'a',z_pc BEQ t_asmkw                                      ; 'asm' block?
+    CIT 'u',z_pc FNE t_pcback                                     ; overlook 'use ...' commands
     INV z_pc CIT 's',z_pc FNE t_pcback
     INV z_pc CIT 'e',z_pc FNE t_pcback
     INV z_pc JPS Next
@@ -303,7 +305,7 @@ t_eatname:
     JPA t_pckeep
 
 t_pcback:
-    PLS SDZ z_pc+1 PLS SDZ z_pc+0 JPA t_measure                   ; go back to u...
+    PLS SDZ z_pc+1 PLS SDZ z_pc+0 FPA t_measure                   ; go back to u...
 t_pckeep:
     PLS PLS
 t_measure:
@@ -623,7 +625,7 @@ int_tostr:
     LDZ z_C+2 RL1                                           ; restore stored carry flag
     RLV z_C                                                 ; shift in C and shift everything one step up
     RLZ z_C+2                                               ; shift C into 'remember' and shift an old carry out
-    LDI 0 CPZ z_C+0 FNE .int_start                          ; prüfe nach, ob big register null enthält
+    LDI 0 CPZ z_C+0 BNE .int_start                          ; prüfe nach, ob big register null enthält
     CPZ z_C+1 BNE .int_start
     LDB .int_str CPI '-' FNE .int_out                       ; A must hold '-' for SDR below
     SDT z_strptr RTS
@@ -1194,7 +1196,7 @@ fac_next2b:
 fac_next2c:
     CPI '&' FNE fac_next3                                   ; VARIABLE
     PHS INV z_pc                                            ; push & consume '&'
-    CIT 'V',z_pc FEQ fac_isvar
+    CIT 'V',z_pc BEQ fac_isvar
     LDI BYTE0(error05) PHS LDI BYTE1(error05) PHS JPA Error ; error Invalid expression
 fac_next3:
     CPI 'V' BNE fac_next4
@@ -1586,7 +1588,7 @@ rele_while:
     CIZ 4,z_type BEQ rele_lt_lhslong
     JPS get LDZ z_A+0 PHS LDZ z_A+1 PHS
     JPS BaseExpr
-    CIZ 4,z_type FEQ rele_lt_rhslong
+    CIZ 4,z_type BEQ rele_lt_rhslong
     JPS getB NEV z_B
     PLS AD.Z z_B+1 PLS ADV z_B
     BMI int_true
@@ -1754,7 +1756,7 @@ rele_rts:
 
 ; handle logical operators: not, and, or, xor, <<, >> (and simultaeously bitwise operators)
 Expr:
-    CIT 0xd9,z_pc FEQ expr_not
+    CIT 0xd9,z_pc BEQ expr_not
     JPS RelExpr JPA expr_while
 expr_not:
     INV z_pc                               ; consume 'not'
@@ -2015,7 +2017,7 @@ TypedCompExpr:
 ; --------------------------------------------------------------------------------------
 
 ReturnStmt:
-    CIT 0xe0,z_pc FCS return_else
+    CIT 0xe0,z_pc BCS return_else
     JPS CompExpr LDI 4 OR.Z z_halt                             ; it is important to set halt *after* CompExpr()!
     MVV z_sp,z_retsp
     RTS
@@ -2096,7 +2098,7 @@ printexit:
 ; z_serial: 0=screen, 1=serial, 2=both
 emit_char:
     PHS                                                        ; save char (CIZ trashes A)
-    CIZ 0,z_serial FNE .notscr
+    CIZ 0,z_serial BNE .notscr
     PLS JAS _PrintChar RTS                                     ; screen only (fast path)
 .notscr:
     CPI 2 BNE .ser
@@ -2371,7 +2373,7 @@ ass_fastconst:
     INV z_pc
     LDS 6 SDZ assptr+0 LDS 5 SDZ assptr+1                   ; vp->type
     LDT assptr SDZ z_tmp_type
-    PLS CPI 0xff FEQ ass_nooffa
+    PLS CPI 0xff BEQ ass_nooffa
     SDZ z_A+1 PLS SDZ z_A+0                                 ; z_A = offset
     CIZ 1,z_tmp_type FEQ ass_achar                          ; char: offset stays as-is
     LLV z_A                                                 ; offset x 2 (int or first shift for long)
@@ -2758,7 +2760,7 @@ VarCheckDuplicate:
     LDT getptr SDZ z_A+0                   ; compare id
     LDR vardup_new CPZ z_A+0 BNE .next
     INV getptr INW vardup_new              ; compare sub
-    LDT getptr CPR vardup_new BNE .restore
+    LDT getptr CPR vardup_new FNE .restore
     LDI BYTE0(error25) PHS LDI BYTE1(error25) PHS JPA Error
 .restore:
     SIV 1,getptr SIW 1,vardup_new
@@ -2851,7 +2853,7 @@ ConstTrackDefLine:
     INW const_src
     LDR const_src CPI 'e' BNE .restore
     INW const_src
-    LDR const_src CPI 'f' BNE .restore
+    LDR const_src CPI 'f' FNE .restore
     MIB 1,const_wait_fun
     MBB ind,const_fun_indent
 .restore:
@@ -2938,7 +2940,7 @@ TryConstDecl:
     INV z_pc
     LDB const_decl_type CPI 1 BNE .int_rhs
 .char_rhs:
-    JPS ConstParseNumericRhs CPI 1 FEQ .char_num
+    JPS ConstParseNumericRhs CPI 1 BEQ .char_num
     JPS ConstParseStringRhs CPI 1 BNE .bad
     JPA .tail
 .char_num:
@@ -3088,7 +3090,7 @@ ConstParseNumber:
     CPI 1 FEQ .hexdone
     JPS ParseDecimalLiteral32
     CPI 2 FEQ .overflow
-    CPI 1 FNE .numfail
+    CPI 1 BNE .numfail
 .hexdone:
     CIB 4,const_decl_type FEQ .longok
     LDZ z_C+2 ORZ z_C+3 CPI 0 FNE .overflow
@@ -3157,27 +3159,7 @@ ParseHexLiteral:
     INV z_pc
     CLQ z_C
 .loop:
-    LDT z_pc
-    CPI '9' FGT .maybe_upper
-    CPI '0' FCS .digit
-    FPA .done
-.maybe_upper:
-    CPI 'F' FGT .maybe_lower
-    CPI 'A' FCS .upper
-    FPA .done
-.maybe_lower:
-    CPI 'f' FGT .done
-    CPI 'a' FCS .lower
-    FPA .done
-.digit:
-    SUI '0'
-    FPA .accum
-.upper:
-    SUI 55                                                        ; 'A'..'F' -> 10..15
-    FPA .accum
-.lower:
-    SUI 87                                                        ; 'a'..'f' -> 10..15
-.accum:
+    LDT z_pc JPS HexNibble CPI 16 FCS .done
     PHS
     LLQ z_C FCS .overflow_pop
     LLQ z_C FCS .overflow_pop
@@ -3218,7 +3200,7 @@ ConstNameExists:
     MBB const_local_base+0,const_start+0
     MBB const_local_base+1,const_start+1
 .chknum:
-    JPS ConstLookupNumeric CPI 1 FEQ .hit
+    JPS ConstLookupNumeric CPI 1 BEQ .hit
     MIB BYTE0(conststrtab),const_start+0
     MIB BYTE1(conststrtab),const_start+1
     CIB 0,const_local_active FEQ .chkstr
@@ -3284,9 +3266,9 @@ ConstCopyStringLiteralToDst:
     MIR '"',const_dst INW const_dst INV z_A
     INV z_pc
 .loop:
-    LDT z_pc CPI '"' FEQ .close
-    CPI 0 FEQ .bail
-    CPI 10 FEQ .bail
+    LDT z_pc CPI '"' BEQ .close
+    CPI 0 BEQ .bail
+    CPI 10 BEQ .bail
     JPS TakeOrd SDR const_dst INW const_dst INV z_A
     JPA .loop
 .close:
@@ -3528,13 +3510,13 @@ linenext2:
     INV z_pc LDT z_pc PHS PHS INV z_pc JPS getCall
     JPS FunctionCall PLS PLS JPA linecont
 linenext3:
-    CPI 'R' FNE linenext4
+    CPI 'R' BNE linenext4
     INV z_pc JPS ReturnStmt JPA linecont
 linenext4:
     CPI '1' BNE linenext5
-    INV z_pc LDI 1 PHS JPS VarDefinition PLS FPA linecont
+    INV z_pc LDI 1 PHS JPS VarDefinition PLS JPA linecont
 linenext5:
-    CPI '2' FNE linenext6
+    CPI '2' BNE linenext6
     INV z_pc LDI 2 PHS JPS VarDefinition PLS FPA linecont
 linenext6:
     CPI '4' FNE linenext6b
@@ -3608,7 +3590,7 @@ whileloop:
     JPS Expr JPS ScalarTruthy
     CPI 0 BEQ whiledone
     JPS Block
-    CIZ 0,z_halt FNE whilehalt
+    CIZ 0,z_halt BNE whilehalt
     LDS 1 SDZ z_pc+1 LDS 2 SDZ z_pc+0
     JPA whileloop
 whiledone:
@@ -3678,11 +3660,72 @@ fac_blobloop:
     LDT z_pc SDT z_PtrC INV z_pc INV z_PtrC FPA fac_blobloop
 fac_blobdone:
     MIT 0,z_PtrC                                            ; write zero-termination byte
-    CIB BYTE1(endsp),z_PtrC+1 FCC fac_blobrts
+    CIB BYTE1(endsp),z_PtrC+1 BCC fac_blobrts
     BNE memerror
     CIB BYTE0(endsp),z_PtrC+0 FCC fac_blobrts
     BNE memerror
 fac_blobrts:
+    RTS
+
+; --------------------------------------------------------------------------------------
+; ASM BLOCKS
+
+; 'asm' alone on a line starts a block of Intel HEX records that ends with the EOF record.
+; Entered from t_while with the line-start z_pc pushed. Data bytes are written straight to
+; their load addresses, which must lie in a user code area (0x0100..0x0fff or 0xed80..0xefff).
+; Nothing is emitted into the token stream. Returns to t_while after the EOF record.
+; uses: z_A load address, z_C+0 checksum, z_C+1 byte count, z_C+2 (AsmHexByte), z_C+3 record type
+t_asmkw:
+    INV z_pc CIT 's',z_pc BNE t_pcback
+    INV z_pc CIT 'm',z_pc BNE t_pcback
+    INV z_pc JPS Next CPI 10 BNE t_pcback                         ; 'asm' must end the line
+    PLS PLS
+t_asmline:
+    INW g_line INV z_pc                                           ; consume \n before the next record
+    JPS Next CPI ':' FNE t_asmerror
+    INV z_pc CLZ z_C+0                                            ; consume ':' and clear checksum
+    JPS AsmHexByte SDZ z_C+1                                      ; byte count
+    JPS AsmHexByte SDZ z_A+1                                      ; load address MSB
+    JPS AsmHexByte SDZ z_A+0                                      ; load address LSB
+    JPS AsmHexByte SDZ z_C+3 CPI 2 FCS t_asmerror                 ; record type: 0 = data, 1 = EOF
+t_asmdata:
+    DEZ z_C+1 FCC t_asmsum                                        ; all data bytes written?
+    LDZ z_A+1 CPI 0x01 FCC t_asmerror                             ; 0x0000..0x00ff
+    CPI 0x10 FCC t_asmput                                         ; 0x0100..0x0fff
+    CPI 0xf0 FCS t_asmerror                                       ; 0xf000..0xffff
+    CPI 0xed FCC t_asmerror                                       ; 0x1000..0xecff
+    FNE t_asmput                                                  ; 0xee00..0xefff
+    CIZ 0x80,z_A+0 FCC t_asmerror                                 ; 0xed00..0xed7f
+t_asmput:
+    JPS AsmHexByte SDT z_A INV z_A
+    FPA t_asmdata
+t_asmsum:
+    JPS AsmHexByte CIZ 0,z_C+0 FNE t_asmerror                     ; record bytes incl. checksum sum to 0
+    CIZ 0,z_C+3 BNE t_while                                       ; EOF record ends the block
+    JPS Next CPI 10 FEQ t_asmline
+t_asmerror:
+    PHSPTR error34 JPA SourceError                                ; error invalid asm record
+
+; Reads two hex digits at z_pc as one byte into A and adds it to the asm record checksum z_C+0.
+; modifies: z_pc, z_C+0, z_C+2
+AsmHexByte:
+    JPS .nibble LL4 SDZ z_C+2
+    JPS .nibble ORZ z_C+2 SDZ z_C+2
+    AD.Z z_C+0 LDZ z_C+2 RTS
+.nibble:
+    LDT z_pc JPS HexNibble CPI 16 FCS t_asmerror                  ; not a hex digit
+    PHS INV z_pc PLS RTS
+
+; Converts the ASCII char in A to its hex digit value 0..15 (0-9, a-f, A-F).
+; returns A >= 16 if the char is not a hex digit
+HexNibble:
+    CPI 'a' FCC .upper
+    SUI 32                                                        ; fold 'a'..'f' onto 'A'..'F'
+.upper:
+    SUI '0' CPI 10 FCC .done                                      ; '0'..'9' -> 0..9
+    SUI 7 CPI 10 FCS .done                                        ; 'A'..'F' -> 10..15, others >= 16
+    LDI 0xff                                                      ; ':'..'@' fell below 10
+.done:
     RTS
 
 ; --------------------------------------------------------------------------------------
@@ -3710,6 +3753,7 @@ error30:  .cstr "Expect ]"
 error31:  .cstr "Expect ("
 error32:  .cstr "Expect )"
 error33:  .cstr "Expect ="
+error34:  .cstr "Invalid asm"
 
 
 ; --------------------------------------------------------------------------------------
