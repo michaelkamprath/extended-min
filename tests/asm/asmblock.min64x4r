@@ -1,0 +1,65 @@
+; Machine code for tests/asmblkrx.xmin (Minimal 64x4 Redux).
+; Build the test's asm block and the symbol declarations that follow it with:
+;   bespokeasm compile -c slu4-minimal-64x4-redux.yaml -n -p -t xmin tests/asm/asmblock.min64x4r
+; This needs BespokeASM 0.9.0 or later. The Minimal 64x4 Redux config's xmin format defines the user
+; code areas XMIN_USER_CODE (0x0100..0x0FFF) and XMIN_USER_CODE_HI (0xED80..0xEFFF), so the
+; assembler rejects code that does not fit; `-t xmin_listing` gives a listing of the same build.
+; Each `#annotate xmin` line exports the symbol below it to the generated declarations.
+; Keep in sync with asmblock.min64x4 (original), which differs only in the store mnemonics.
+
+#require __LANGUAGE_NAME__ == slu4-min64x4-redux-asm
+
+.memzone XMIN_USER_CODE
+.org 0 "XMIN_USER_CODE"
+
+; pr = pa + pb
+#annotate xmin kind=addr name=AddW
+addw:
+    LDB pa+0 SDB pr+0 LDB pa+1 SDB pr+1
+    LDB pb+0 ADW pr
+    LDB pb+1 AD.B pr+1
+    RTS
+
+; pr = 1 + 2 + ... + (pa & 0xff). Placed to straddle the 0x01ff/0x0200 page edge and to use
+; an internal JPS, JPA and fast branch, all of which need the code at its assembled address.
+.org 0x00f0 "XMIN_USER_CODE"
+#annotate xmin kind=addr name=SumTo
+sumto:
+    CLB pr+0 CLB pr+1
+    LDB pa+0 SDB count
+.loop:
+    LDB count CPI 0 FEQ .done
+    JPS addcount
+    DEB count
+    JPA .loop
+.done:
+    RTS
+addcount:
+    LDB count ADW pr
+    RTS
+count:
+    .byte 0
+
+; parameter block shared with the xmin script, at 0x0f00; the asm block zero-fills it
+.org 0x0e00 "XMIN_USER_CODE"
+#annotate xmin kind=var type=int
+pa: .2byte 0                        ; int argument a
+#annotate xmin kind=var type=int
+pb: .2byte 0                        ; int argument b
+#annotate xmin kind=var type=int
+pr: .2byte 0                        ; int result
+
+.memzone XMIN_USER_CODE_HI
+.org 0 "XMIN_USER_CODE_HI"
+
+; returns 0x5a in A, which the interpreter stores to 0x00ff after the call
+#annotate xmin kind=addr name=RetK
+retk:
+    LDI 0x5a RTS
+
+; table at the very top of the high area: 1..32, exported as char table[32]
+.org 0x0260 "XMIN_USER_CODE_HI"
+#annotate xmin kind=var type=char array
+table:
+    .byte 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+    .byte 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32

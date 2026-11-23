@@ -1,0 +1,4 @@
+# Expect: Invalid asm in line 3 (0x00ff is below the low user area)
+asm
+:0100FF000000
+:00000001FF

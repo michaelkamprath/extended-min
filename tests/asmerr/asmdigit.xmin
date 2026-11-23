@@ -1,0 +1,4 @@
+# Expect: Invalid asm in line 3 (G is not a hex digit)
+asm
+:03ED8000G102038A
+:00000001FF

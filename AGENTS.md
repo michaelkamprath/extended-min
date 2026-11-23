@@ -152,6 +152,7 @@ At time of writing:
 - `MIN_LHS_SPILL`: `0xed00..0xed7f`
 - source + token stream: `0x8000..0xcfff`
 - tokenizer items dict / runtime stack (shared): `0xd000..0xdfff`
+- user code areas for `asm` blocks: `0x0100..0x0fff` and `0xed80..0xefff` (the interpreter must never use these; the `asm` range check in the tokenizer hard-codes them)
 
 Rules:
 

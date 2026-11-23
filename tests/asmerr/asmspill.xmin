@@ -1,0 +1,4 @@
+# Expect: Invalid asm in line 3 (0xed7f is the long spill stack)
+asm
+:01ED7F000093
+:00000001FF

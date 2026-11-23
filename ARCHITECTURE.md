@@ -31,6 +31,7 @@ Error path:
 ## Memory Model
 From comments and constants in this file:
 
+- `0x0100..0x0fff`: user code area (3840 bytes, text editor RAM). Not used by the interpreter; `asm` blocks may load here.
 - `0x1000..0x3fff`: interpreter code + global state (12 KB)
 - `0x8000..0xcfff`: source text (`file`) with tokenized stream appended after loaded text (20 KB)
 - `0xd000..0xdfff`: shared tokenizer items dictionary / runtime data stack (4 KB). During tokenization, `newitems_ram` grows from `0xd000` upward with new variable/call name entries. At runtime, `firstsp` starts at `0xd000` and the full 4 KB is used as the expression/variable data stack. The two uses never overlap because tokenization completes before runtime begins.
@@ -39,6 +40,7 @@ From comments and constants in this file:
 - `0xec00..0xecff`: source-vector page (`firstsrc`), used for up to 11 fixed 22-byte entries
 - `0xed00`: source-vector guard (`endsrc`) / long-lhs spill stack start
 - `0xed00..0xed7f`: long-lhs spill stack (128 bytes, relocated after source vector)
+- `0xed80..0xefff`: high user code area (640 bytes). Not used by the interpreter or MinOS; `asm` blocks may load here.
 - `0xff00..0xffff`: CPU fast page + hardware stack (managed by CPU push/pop and subroutine calls)
 
 Zero page (`MIN_ZERO_PAGE`, `0x0010..0x007f`) holds nearly all hot interpreter state (`z_pc`, `z_sp`, `z_type`, `z_cnt`, pointers, math registers), plus:
@@ -96,6 +98,7 @@ Import resolution:
 - Loader scans source text for `use "..."`, ignoring `#...` comment regions, and appends each file into source memory.
 - Max imported-source tracking is implemented via source-vector pointer progression.
 - `Tokenizer` later skips `use` lines so imports affect loading, not runtime statements.
+- An `asm` block in an imported file loads like one in the main file, because the tokenizer handles it (see Tokenizer Architecture).
 - Tokenization walks the source-vector from newest to oldest entry, so imported modules are tokenized before their importers.
 - Tokenizer output is guarded against `source_top` to avoid source/token stream overwrite of the shared tokenizer items / runtime stack area.
 
@@ -129,6 +132,16 @@ Token forms:
 - fast assignment forms:
   - `+=` -> `'a'`
   - `-=` -> `'s'`
+
+`asm` blocks (tokenizer-time machine-code loader):
+- At line start, `t_while` pushes `z_pc` and checks for `asm` (column 0, followed only by spaces or a comment) before the `use` check; both share the `t_pcback` back-up path.
+- Each following line must be one Intel HEX record. Fields are read two digits at a time by `AsmHexByte`, which uses the shared `HexNibble` digit converter (also used by `ParseHexLiteral`) and sums every byte into a checksum.
+- Data records (`00`) write each byte directly to its load address after a per-byte range check: only `0x0100..0x0fff` and `0xed80..0xefff` are accepted. The EOF record (`01`) ends the block and returns to `t_while`.
+- Any malformed record, bad checksum, unsupported record type, missing EOF record, or out-of-range byte raises `Invalid asm` (`error34`) through `SourceError`. Bytes of a record written before the failing byte stay written.
+- Nothing is emitted into the token stream. Scratch state is transient math registers: `z_A` (load address), `z_C+0` (checksum), `z_C+1` (byte count), `z_C+2` (byte assembly), `z_C+3` (record type).
+- The runtime `Error` path re-runs the tokenizer, which rewrites the same bytes. That is harmless because the program is stopping.
+- Overlapping blocks are not detected; the later write wins.
+- The block parser (`t_asmkw`), `AsmHexByte` and `HexNibble` sit after the runtime code, just before the error strings, so adding them did not shift the hot code's fast-branch layout. Keep cold additions there for the same reason.
 
 Tokenizer constraints:
 - identifier length max is 13 characters
@@ -395,6 +408,7 @@ statement   = { NEWLINE }, EQIND, simple-line
             | { NEWLINE }, NOIND, 'def', identifier, '(', { type, ['&'], identifier, [','] }, ')', [':'], block
             | { NEWLINE }, EQIND, const-decl
             | { NEWLINE }, NOIND, 'use', '"', { character }, '"'          (* import another file*)
+            | { NEWLINE }, NOIND, 'asm', NEWLINE, { hex-record, NEWLINE }, eof-record  (* machine code loaded at tokenize time *)
 simple-line = simple-stmt, [';'], { simple-stmt, [';'] }
 simple-stmt = type, identifier, ['[', expr, ']'], ['@', expr ], ['=', init-expr ]  (* variable definition *)
             | identifier, ['[', expr, ']'], '=', comp-expr                (* assignment *)
@@ -413,6 +427,8 @@ simple-stmt = type, identifier, ['[', expr, ']'], ['@', expr ], ['=', init-expr 
 constant    = '0x', { hexdigit }                                          (* HEX number: int, or long when > 0xffff; bare 0x means zero *)
             | digit, { digit }                                            (* int DEC number *)
 blob-lit    = '$(', { NEWLINE | ',' | constant }, ')'                      (* char byte blob; constants must be 0..255 *)
+hex-record  = ':', { hexdigit, hexdigit }                                (* Intel HEX data record (type 00) *)
+eof-record  = ':00000001FF'                                               (* Intel HEX end-of-file record *)
 factor      = constant
             | blob-lit
             | cast-func
